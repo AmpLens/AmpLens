@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Rust
+target/
+
+# Editors
+.vscode/
+.idea/
+
+# Local environment and secrets
+.env
+
+# Model weights are fetched separately, never committed
+*.pth
