@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amplens"
+version = "0.1.0"
+description = "AmpLens: tools for revealing physical structure in scattering amplitudes"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [
+  { name = "Yifan Fei" },
+  { name = "Zhen Liu" },
+]
+keywords = ["scattering amplitudes", "spinor-helicity", "computer algebra"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+# The components, pinned to the series released together with this version. `ampzip`
+# pulls its own engine wheel (`amplens-engine`, same series).
+dependencies = [
+  "ampzip==1.0.*",
+]
+
+# Extras carry the same names as AmpZip's and forward to them, so `amplens[web]` and
+# `ampzip[web]` install the same thing.
+[project.optional-dependencies]
+web = ["ampzip[web]==1.0.*"]
+ml = ["ampzip[ml]==1.0.*"]
+sft = ["ampzip[sft]==1.0.*"]
+cds = ["ampzip[cds]==1.0.*"]
+
+[project.scripts]
+amplens = "amplens.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AmpLens/AmpLens"
+Source = "https://github.com/AmpLens/AmpLens/tree/main/amplens"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplens"]
+
+[tool.hatch.build.targets.sdist]
+include = ["amplens", "README.md", "LICENSE"]
