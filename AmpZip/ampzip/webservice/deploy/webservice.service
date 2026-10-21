@@ -1,0 +1,33 @@
+# systemd unit for the simplifier web service.
+# Install (needs sudo): see docs/DEPLOY.md "Running with systemd".
+#
+# On Linux, model downloads and logs default to paths under the service user's
+# home directory. `AMPZIP_BACKENDS` overrides the model tree location. Service logs
+# use `WEBSVC_LOG_DIR`, then `AMPZIP_LOG_DIR`, then the default user log directory.
+# Torch and Matplotlib also need writable caches, whose common base can be set
+# with `XDG_CACHE_HOME`.
+# This unit enables `NoNewPrivileges`, `PrivateTmp` and automatic restart.
+# Before adding `ProtectHome` or `ProtectSystem=strict`, configure the paths
+# above and allow the required read/write access.
+
+[Unit]
+Description=Spinor-Helicity Simplifier web service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Fill in: the service user, the install directory (a checkout or any directory that holds
+# the env file), and the venv where `pip install ampzip[web]` ran.
+User=<user>
+WorkingDirectory=/opt/ampzip
+EnvironmentFile=/opt/ampzip/webservice.env
+ExecStart=/opt/ampzip/.venv/bin/python -m ampzip.webservice
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

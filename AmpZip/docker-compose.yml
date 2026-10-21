@@ -1,0 +1,54 @@
+# One-command local deployment, from this directory (the one holding this file):
+#   docker compose up
+# then open http://127.0.0.1:8000. The `ampzip` service runs the training-free search only, with
+# authentication off and the port bound to loopback. Do not change the bind without reading
+# docs/DEPLOY.md: the dev auth mode trusts every request.
+#
+# Learned backends (SFT / CDS): `ampzip fetch-backends [--cds]` on the host, then
+#   docker compose build ampzip            # the ML image is built on top of ampzip:local
+#   docker compose stop ampzip             # both services publish 127.0.0.1:8000
+#   docker compose up --build ampzip-ml
+# which mounts the fetched tree read-only and installs torch into the image. Name the service
+# as above; `docker compose --profile ml up` would start both services on the same port.
+
+services:
+  ampzip:
+    build: .
+    image: ampzip:local
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      WEBSVC_AUTH_MODE: dev
+      WEBSVC_DEV_ALLOW_NO_AUTH: "1"
+      AMPZIP_LOG_DIR: /home/ampzip/logs
+    volumes:
+      - ampzip-logs:/home/ampzip/logs
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # Started by name (`docker compose up ampzip-ml`); shares the host port with `ampzip`, so stop
+  # that one first.
+  ampzip-ml:
+    profiles: ["ml"]
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    image: ampzip:local-ml
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      WEBSVC_AUTH_MODE: dev
+      WEBSVC_DEV_ALLOW_NO_AUTH: "1"
+      AMPZIP_LOG_DIR: /home/ampzip/logs
+      AMPZIP_BACKENDS: /backends/RL_amplitudes_claude
+    volumes:
+      - ampzip-logs:/home/ampzip/logs
+      # The tree written by `ampzip fetch-backends` on the host (default location shown;
+      # change the left-hand side if you passed --dest or set AMPZIP_BACKENDS).
+      - ${AMPZIP_BACKENDS_HOST:-~/.local/share/ampzip/backends}:/backends:ro
+    restart: unless-stopped
+
+volumes:
+  ampzip-logs:

@@ -1,0 +1,20 @@
+# systemd unit for the AmpZip Cloudflare tunnel.
+# Run as the user whose ~/.cloudflared directory contains the config and credentials.
+# Automatic updates are disabled; systemd restarts the tunnel if it exits.
+#
+# Install (needs sudo): see docs/DEPLOY.md "Running with systemd".
+
+[Unit]
+Description=Cloudflare Tunnel for AmpZip
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=<user>
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config /home/<user>/.cloudflared/config.yml tunnel run ampzip
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,166 @@
+"""Momentum-twistor kinematics over F_p.
+
+Momentum twistors Z_i = (lambda_i, mu_i) are UNCONSTRAINED: sample them freely and
+momentum conservation + masslessness hold automatically (Hodges' construction of the
+square spinor). This gives an on-shell sampler that is drop-in for the verifier
+(`equal(..., sampler=sample_twistor_modp)`), and — via the twistors' mu components —
+lets us evaluate the momentum-twistor 4-brackets ⟨ijkl⟩ = det(Z_i,Z_j,Z_k,Z_l).
+
+Why: in twistor variables the COMPLETE set of invariants is finite — the 2-brackets
+⟨ij⟩ (angle, = the existing `ab`) and the 4-brackets ⟨ijkl⟩ (a new `fb` atom). Every
+pole an n-point massless amplitude can have (physical or spurious) is a 4-bracket, so
+the pole "library" for reconstruction is this finite, complete set — no guessing.
+
+Convention (standard Hodges):
+    ⟨i j⟩       = lambda_i x lambda_j                       (2x2 minor)
+    lambdatilde_i = ( ⟨i,i+1⟩ mu_{i-1} + ⟨i+1,i-1⟩ mu_i
+                      + ⟨i-1,i⟩ mu_{i+1} ) / ( ⟨i-1,i⟩⟨i,i+1⟩ )   (cyclic)
+    [i j]       = lambdatilde_i x lambdatilde_j
+    ⟨i j k l⟩   = det( Z_i, Z_j, Z_k, Z_l ),  Z_i = (lambda_i, mu_i)
+Momentum conservation Sum_i lambda_i lambdatilde_i == 0 is automatic (verified in tests).
+"""
+from __future__ import annotations
+
+import random
+
+import sympy as sp
+
+from .field import DegeneratePoint, modinv
+from .kinematics import sample_onshell_modp  # noqa: F401  (re-export convenience)
+
+DEFAULT_PRIMES = (2_147_483_647, 2_147_483_629)
+DEFAULT_K = 16
+
+# 1-indexed 4-bracket atom, e.g. fb(1,2,3,4) = <1 2 3 4>.
+fb = sp.Function("fb")
+
+
+def _minor(u, v, p):
+    return (u[0] * v[1] - u[1] * v[0]) % p
+
+
+def _det4_modp(rows, p):
+    """Determinant of a 4x4 (list of 4 rows) mod p via Gaussian elimination."""
+    m = [r[:] for r in rows]
+    det = 1
+    for c in range(4):
+        piv = next((r for r in range(c, 4) if m[r][c] % p != 0), None)
+        if piv is None:
+            return 0
+        if piv != c:
+            m[c], m[piv] = m[piv], m[c]
+            det = (-det) % p
+        det = (det * m[c][c]) % p
+        inv = modinv(m[c][c], p)
+        for r in range(c + 1, 4):
+            f = (m[r][c] * inv) % p
+            if f:
+                m[r] = [(m[r][k] - f * m[c][k]) % p for k in range(4)]
+    return det % p
+
+
+def sample_twistor_modp(n, p, rng):
+    """Sample one on-shell, momentum-conserving point via free momentum twistors.
+
+    Returns {'n','p','lam','lamt','Z'} — the same dict shape as sample_onshell_modp
+    (so it is drop-in for equal(..., sampler=...) and vals_from_point) plus 'Z' (the
+    length-n list of 4-vectors) for 4-bracket evaluation. Returns None if a Hodges
+    denominator ⟨i-1,i⟩⟨i,i+1⟩ vanishes mod p (caller resamples)."""
+    lam = [[rng.randrange(p), rng.randrange(p)] for _ in range(n)]
+    mu = [[rng.randrange(p), rng.randrange(p)] for _ in range(n)]
+    lamt = [None] * n
+    for i in range(n):
+        im1, ip1 = (i - 1) % n, (i + 1) % n
+        a_im1_i = _minor(lam[im1], lam[i], p)      # ⟨i-1 i⟩
+        a_i_ip1 = _minor(lam[i], lam[ip1], p)      # ⟨i i+1⟩
+        a_ip1_im1 = _minor(lam[ip1], lam[im1], p)  # ⟨i+1 i-1⟩
+        denom = (a_im1_i * a_i_ip1) % p
+        if denom == 0:
+            return None
+        inv = modinv(denom, p)
+        lamt[i] = [((a_i_ip1 * mu[im1][b] + a_ip1_im1 * mu[i][b]
+                     + a_im1_i * mu[ip1][b]) % p) * inv % p for b in (0, 1)]
+    Z = [[lam[i][0], lam[i][1], mu[i][0], mu[i][1]] for i in range(n)]
+    return {"n": n, "p": p, "lam": lam, "lamt": lamt, "Z": Z}
+
+
+def sample_twistor_fb_zero(n, p, rng, quad):
+    """Sample a twistor point ON the surface ⟨ijkl⟩ = 0 (quad = 1-indexed (i,j,k,l)):
+    set Z_l = a*Z_i + b*Z_j + c*Z_k (random a,b,c) so the four twistors are dependent
+    (det = 0) while other invariants stay generic. Returns the same dict shape as
+    sample_twistor_modp, or None if the Hodges denominator degenerates."""
+    i, j, k, l = (q - 1 for q in quad)
+    lam = [[rng.randrange(p), rng.randrange(p)] for _ in range(n)]
+    mu = [[rng.randrange(p), rng.randrange(p)] for _ in range(n)]
+    Z = [[lam[t][0], lam[t][1], mu[t][0], mu[t][1]] for t in range(n)]
+    a, b, c = rng.randrange(p), rng.randrange(p), rng.randrange(p)
+    Z[l] = [(a * Z[i][t] + b * Z[j][t] + c * Z[k][t]) % p for t in range(4)]
+    lam[l] = [Z[l][0], Z[l][1]]
+    mu[l] = [Z[l][2], Z[l][3]]
+    lamt = [None] * n
+    for t in range(n):
+        tm1, tp1 = (t - 1) % n, (t + 1) % n
+        a1 = _minor(lam[tm1], lam[t], p)
+        a2 = _minor(lam[t], lam[tp1], p)
+        a3 = _minor(lam[tp1], lam[tm1], p)
+        d = (a1 * a2) % p
+        if d == 0:
+            return None
+        inv = modinv(d, p)
+        lamt[t] = [((a2 * mu[tm1][bb] + a3 * mu[t][bb] + a1 * mu[tp1][bb]) % p) * inv % p
+                   for bb in (0, 1)]
+    return {"n": n, "p": p, "lam": lam, "lamt": lamt, "Z": Z}
+
+
+def vals_from_twistor_point(point, atoms, p):
+    """Map ab / sb / fb Function atoms to F_p values at a twistor point.
+    ab,sb use lam/lamt 2x2 minors (as in kinematics.vals_from_point); fb(i,j,k,l) is
+    the 4x4 twistor determinant ⟨ijkl⟩. 1-indexed labels."""
+    lam, lamt, Z = point["lam"], point["lamt"], point["Z"]
+    vals = {}
+    for a in atoms:
+        nm = a.func.__name__
+        if nm == "ab":
+            i, j = int(a.args[0]) - 1, int(a.args[1]) - 1
+            vals[a] = _minor(lam[i], lam[j], p)
+        elif nm == "sb":
+            i, j = int(a.args[0]) - 1, int(a.args[1]) - 1
+            vals[a] = _minor(lamt[i], lamt[j], p)
+        elif nm == "fb":
+            idx = [int(x) - 1 for x in a.args]
+            vals[a] = _det4_modp([Z[t] for t in idx], p)
+        else:
+            raise ValueError(f"vals_from_twistor_point: unsupported atom {nm}")
+    return vals
+
+
+def equal_twistor(A, B, n, k=DEFAULT_K, primes=DEFAULT_PRIMES, rng=None, max_resample=128):
+    """Like verify.equal but over twistor points, so expressions may contain fb
+    (4-bracket) atoms in addition to ab/sb. Cross-multiplies (never divides)."""
+    from .field import eval_modp
+    from .verifier import _num_den
+    if rng is None:
+        rng = random.Random()
+    numA, denA = _num_den(A)
+    numB, denB = _num_den(B)
+    atoms = (numA.atoms(sp.Function) | denA.atoms(sp.Function)
+             | numB.atoms(sp.Function) | denB.atoms(sp.Function))
+    for p in primes:
+        got = tries = 0
+        while got < k:
+            tries += 1
+            if tries > k + max_resample:
+                raise RuntimeError(f"too many singular twistor points (n={n}, p={p})")
+            pt = sample_twistor_modp(n, p, rng)
+            if pt is None:
+                continue
+            vals = vals_from_twistor_point(pt, atoms, p)
+            try:
+                lhs = (eval_modp(numA, vals, p) * eval_modp(denB, vals, p)) % p
+                rhs = (eval_modp(numB, vals, p) * eval_modp(denA, vals, p)) % p
+            except DegeneratePoint:
+                continue
+            if lhs != rhs:
+                return False
+            got += 1
+    return True
