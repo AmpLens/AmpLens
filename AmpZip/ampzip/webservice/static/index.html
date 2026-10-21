@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AmpZip</title>
+<!-- MathJax (vendored, SVG output: one self-contained file, works offline) renders
+     ⟨i j⟩ / [i j]; if it fails to load, expressions fall back to plain text (see renderMath()). -->
+<script>
+  window.MathJax = { tex: { inlineMath: [['$', '$']] }, svg: { fontCache: 'global' } };
+</script>
+<script async src="/static/mathjax/tex-svg.js"></script>
+<style>
+  :root { --bg:#0f1320; --panel:#181d2e; --ink:#e6e9f2; --muted:#9aa3bd;
+          --acc:#6ea8fe; --ok:#3ddc97; --bad:#ff6b6b; --line:#2a3147; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 24px 18px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:0 0 6px; }
+  textarea, select { width:100%; background:#0c1020; color:var(--ink);
+           border:1px solid var(--line); border-radius:8px; padding:10px;
+           font-family: ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; }
+  textarea { min-height:64px; resize:vertical; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:160px; }
+  .algos { display:flex; gap:16px; flex-wrap:wrap; margin-top:4px; }
+  .algos label { display:flex; align-items:center; gap:6px; color:var(--ink);
+                 font-size:14px; margin:0; cursor:pointer; }
+  /* forces a wrap in the flex row: keeps the default-on gbfs family on its own
+     line, with the opt-in SFT/CDS backends starting the next one. */
+  .algos .break { flex-basis:100%; height:0; margin:0; }
+  /* parameter controls: each is label-over-control, bottoms aligned, natural
+     width, wraps if needed. simplify-mode appears as another cell (horizontal)
+     when cds is checked, so toggling it never shifts anything vertically. */
+  .controls { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end; margin-top:14px; }
+  .controls > div { display:flex; flex-direction:column; }
+  .controls select { width:auto; }
+  .controls input[type=number] { width:5em; }
+  /* the two gbfs budgets accept 6-digit values (max_apps up to 100000); a 5em box
+     clips them once the spinner arrows take their share, so give them room. */
+  .controls input#gbfs_max_apps { width:8em; }
+  .controls input#gbfs_max_seconds { width:7em; }
+  .preview { min-height:42px; padding:10px 12px; border:1px dashed var(--line);
+             border-radius:8px; background:#0c1020;
+             overflow-x:auto; overflow-y:hidden; }
+  /* .preview.mjx beats .mjx (2 classes > 1) so the preview keeps its horizontal
+     padding — otherwise .mjx's `padding:6px 0` zeroes it and the formula hugs
+     the left edge. */
+  .preview.mjx { padding:10px 12px; }
+  button { margin-top:14px; background:var(--acc); color:#06122e; border:0;
+           border-radius:8px; padding:10px 18px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .status { font-size:13px; color:var(--muted); margin:10px 0; min-height:18px; }
+  .err { color:var(--bad); white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:6px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .tag-ok { color:var(--ok); } .tag-no { color:var(--muted); }
+  /* overflow-wrap:anywhere lets the long unspaced ab()/sb() product string wrap
+     mid-token instead of overflowing; it also shrinks the element's min-content
+     width, so a .mono inside the green answer box can't force that box wider than
+     its column (which was pushing the box past the panel edge). */
+  .mono { font-family: ui-monospace,Menlo,monospace; font-size:12px; color:var(--muted);
+          overflow-wrap:anywhere; }
+  /* A gbfs result on an opaque input can be 1000+ brackets / several KB of raw
+     ab/sb text. Fold anything long behind a native <details> so it doesn't carpet
+     the page: the collapsed summary shows a one-line preview + char count, and the
+     expanded body scrolls inside a bounded box instead of growing without limit.
+     Short forms (the common case) skip the fold and render inline. */
+  .min-raw { margin-top:4px; }
+  .mono-fold > summary { cursor:pointer; list-style:none; display:flex; gap:8px;
+          align-items:baseline; padding:6px 8px; border:1px dashed var(--line);
+          border-radius:8px; }
+  .mono-fold > summary::-webkit-details-marker { display:none; }
+  .mono-fold > summary:hover { border-color:var(--muted); }
+  .mono-fold .fold-prev { color:var(--muted); overflow:hidden; text-overflow:ellipsis;
+          white-space:nowrap; flex:1 1 auto; min-width:0; }
+  .mono-fold .fold-meta { color:var(--muted); font-size:11px; white-space:nowrap;
+          flex:0 0 auto; }
+  .mono-fold[open] > summary .fold-prev { display:none; }
+  .mono-fold[open] .mono { margin-top:6px; max-height:320px; overflow:auto;
+          padding:8px; border:1px dashed var(--line); border-radius:8px; }
+  .min-raw > .der-copy { margin-top:6px; }
+  .mjx { overflow-x:auto; overflow-y:hidden; max-width:100%; padding:6px 4px; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:12px;
+          margin-top:12px; margin-bottom:12px; }
+  .card h3 { margin:0 0 8px; font-size:14px; }
+  .kv { color:var(--muted); font-size:12px; }
+  /* progressive-run skeleton card: shimmer placeholder + live timer for a backend
+     that hasn't returned yet. Sits below the already-finished result cards. */
+  .card.skeleton { opacity:0.9; }
+  .skl-head { display:flex; align-items:center; justify-content:space-between; }
+  .skl-head h3 { margin:0; }
+  .skl-timer { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  /* fixed progressive slot: a transparent wrapper (display:contents keeps the card's own
+     margins/spacing) so each algorithm keeps a stable position while its skeleton swaps to
+     a result in place — nothing reorders. */
+  .progress-slot { display: contents; }
+  .skl-line { height:12px; border-radius:6px; margin:10px 0;
+              background:rgba(255,255,255,0.06); }
+  .skl-shimmer { position:relative; overflow:hidden; }
+  .skl-shimmer::after { content:''; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    transform:translateX(-100%); animation:skl-sweep 1.3s infinite; }
+  @keyframes skl-sweep { 100% { transform:translateX(100%); } }
+  /* tooltip-on-hover hint marker: small circle with "?" next to a label.
+     `title` attribute is intentionally NOT used so we avoid the browser's
+     ~500ms delay and white-on-dark mismatch; the pseudo-element below
+     reads from data-tip and renders a panel-coloured tooltip immediately. */
+  .hint { display:inline-block; width:15px; height:15px; line-height:15px;
+          text-align:center; font-size:10px; font-weight:700;
+          color:var(--muted); background:rgba(255,255,255,0.08);
+          border-radius:50%; margin-left:4px;
+          cursor:help; position:relative; user-select:none; vertical-align:middle; }
+  .hint:hover { color:var(--ink); background:rgba(255,255,255,0.16); }
+  /* open DOWNWARD (top, not bottom) so a hint near the page top isn't clipped. */
+  .hint[data-tip]:hover::after {
+    content: attr(data-tip);
+    position:absolute; top:calc(100% + 8px); left:50%;
+    transform:translateX(-50%);
+    width:280px; padding:8px 12px;
+    background:#1f2538; color:var(--ink);
+    border:1px solid var(--line); border-radius:6px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.5);
+    font-size:12px; font-weight:400; font-family:inherit;
+    text-align:left; white-space:normal; line-height:1.45;
+    z-index:100; pointer-events:none;
+  }
+  .notation-open { cursor:pointer; }
+  /* notation reference modal (opened by the ? next to Expression) */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(4,8,18,0.66);
+    display:none; align-items:flex-start; justify-content:center;
+    padding:6vh 16px; z-index:1000; }
+  .modal-backdrop.open { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    width:100%; max-width:640px; max-height:84vh; overflow-y:auto;
+    padding:22px 24px; box-shadow:0 16px 50px rgba(0,0,0,0.6); }
+  .modal h2 { margin:0; font-size:18px; }
+  .modal .modal-x { float:right; cursor:pointer; color:var(--muted);
+    font-size:22px; line-height:1; padding:0 4px; margin:-4px -6px 0 0; }
+  .modal .modal-x:hover { color:var(--ink); }
+  .modal h3 { margin:18px 0 8px; font-size:12px; color:var(--acc);
+    text-transform:uppercase; letter-spacing:.05em; }
+  .ntab { display:grid; grid-template-columns:auto 1fr; gap:9px 18px; align-items:baseline; }
+  .ntab .in { font-family:ui-monospace,Menlo,monospace; font-size:13px;
+    color:var(--ink); white-space:nowrap; }
+  .ntab .mjx { padding:2px 0; }
+  .modal .note { color:var(--muted); font-size:12.5px; line-height:1.55; margin:8px 0 0; }
+  /* result + derivation side-by-side; stacks on narrow screens */
+  /* minmax(0,1fr) (not plain 1fr = minmax(auto,1fr)) lets each column shrink below
+     the intrinsic width of a long non-wrapping formula, so the .mjx overflow-x
+     scrollbar engages INSIDE the column instead of the formula spilling past the
+     panel edge. The min-width:0 below is the same fix one level down. */
+  .result-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+  .result-grid > div { min-width:0; }
+  @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
+  .steps { max-height:420px; overflow-y:auto; border:1px solid var(--line);
+           border-radius:8px; padding:8px; background:#0c1020; }
+  .steps-head { font-size:12px; color:var(--muted); margin:0 0 8px; }
+  .step { padding:8px 0; border-bottom:1px solid var(--line); }
+  .step:last-child { border-bottom:0; }
+  .step .mjx { font-size:.9em; margin-bottom:10px; }   /* fit longer multi-term formulas before scrolling; gap keeps the overflow scrollbar clear of the text/box below */
+  .step-hd { display:flex; justify-content:space-between; gap:8px; font-size:12px;
+             color:var(--muted); margin-bottom:2px; }
+  .step-act { color:var(--acc); }
+  /* derivation per-step expander: rule + raw text + copy/send buttons, hidden by default */
+  .der-toggle { background:none; border:0; color:var(--muted); cursor:pointer;
+                font-size:11px; padding:2px 0; margin:4px 0 0; }
+  .der-toggle:hover { color:var(--ink); }
+  .der-detail { margin-top:6px; padding:8px; border:1px dashed var(--line);
+                border-radius:6px; background:rgba(255,255,255,0.02); }
+  .der-detail .mono { margin-top:4px; }
+  .der-btns { display:flex; gap:6px; margin-top:8px; }
+  .der-btn { background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--muted);
+             border-radius:6px; padding:3px 9px; font-size:11px; font-weight:500;
+             cursor:pointer; margin:0; }
+  .der-btn:hover { color:var(--ink); background:rgba(255,255,255,0.12); }
+  .mjx-rule { overflow-x:auto; overflow-y:hidden; max-width:100%; font-size:.9em; padding:4px 0; }
+  .step.min { background:rgba(61,220,151,.08); border-radius:6px; padding:8px 6px; margin-top:8px; }
+  .step.min .step-bk { color:var(--ok); font-weight:600; }
+  .step0 { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Spinor-Helicity Amplitude Simplifier</h1>
+  <p class="sub">AmpZip · massless 4/5/6-pt · enter an expression in
+     <span class="mono">ab(i,j)</span>=⟨i j⟩, <span class="mono">sb(i,j)</span>=[i j],
+     <span class="mono">s(i,j,…)</span>, <span class="mono">chain(…)</span> notation
+     (click <span class="hint notation-open" role="button" tabindex="0">?</span> for the full notation).</p>
+
+  <div class="panel">
+    <label for="expr">Expression
+      <span class="hint notation-open" role="button" tabindex="0" aria-label="Input notation reference">?</span>
+    </label>
+    <textarea id="expr" spellcheck="false"
+      placeholder="ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))">ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))</textarea>
+
+    <div style="margin-top:10px">
+      <label>Live preview</label>
+      <div id="preview" class="preview mjx"></div>
+    </div>
+
+    <div style="margin-top:14px">
+      <label>Algorithms</label>
+      <div class="algos">
+        <label><input type="checkbox" class="algo" value="model_free_gbfs" id="algo-gbfs" checked> model_free_gbfs<span class="hint" data-tip="Searches the full expression using the factored numerator bracket count by default.">?</span></label>
+        <label><input type="checkbox" class="algo" value="gbfs_c" id="algo-gbfs-c"> gbfs_c<span class="hint" data-tip="Expands the numerator and denominator and cancels common polynomial factors after each move. Its internal bracket count includes the denominator.">?</span></label>
+        <label><input type="checkbox" class="algo" value="gbfs_d" id="algo-gbfs-d"> gbfs_d<span class="hint" data-tip="Counts each two-particle Mandelstam invariant, Dirac chain with one momentum, or remaining bracket as one unit, summed over numerator terms.">?</span></label>
+        <label><input type="checkbox" class="algo" value="gbfs_e" id="algo-gbfs-e"> gbfs_e<span class="hint" data-tip="Simplifies additive terms independently, then recombines them.">?</span></label>
+        <label><input type="checkbox" class="algo" value="gbfs_f" id="algo-gbfs-f"> gbfs_f<span class="hint" data-tip="Uses the per-term searches of gbfs_e and selects among the input and recombined forms. Selection uses an internal bracket count that includes the denominator.">?</span></label>
+        <div class="break"></div>
+        <label><input type="checkbox" class="algo" value="sft_greedy"> SFT-greedy</label>
+        <label><input type="checkbox" class="algo" value="sft_best_of_n"> SFT best-of-N</label>
+        <label><input type="checkbox" class="algo" value="cds_oneshot" id="algo-cds"> CDS one-shot</label>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div>
+        <label for="npoint">n-point</label>
+        <select id="npoint">
+          <option value="">auto (largest leg label)</option>
+          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        </select>
+      </div>
+      <div>
+        <label for="patience">sft-patience
+          <span class="hint" data-tip="SFT: stop after N consecutive steps without improving the bracket count or, at equal bracket count, the term count. 0 disables this stopping rule. Server limit: 50.">?</span>
+        </label>
+        <input id="patience" type="number" min="0" max="50" step="1" value="0" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_max_apps">gbfs-max-apps
+          <span class="hint" data-tip="Move budget for each GBFS variant. Server limit: 200000.">?</span>
+        </label>
+        <input id="gbfs_max_apps" type="number" min="100" max="200000" step="500" value="60000" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_max_seconds">gbfs-max-seconds
+          <span class="hint" data-tip="Search time limit in seconds for each GBFS variant. Returns the best expression found. An operation already in progress is allowed to finish. Server limit: 120 s.">?</span>
+        </label>
+        <input id="gbfs_max_seconds" type="number" min="1" max="120" step="1" value="300" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_max_terms">gbfs-max-terms
+          <span class="hint" data-tip="Maximum numerator term count during input expansion and identity application. Moves exceeding the limit are skipped. Inputs exceeding it are rejected. Server limit: 2000000.">?</span>
+        </label>
+        <input id="gbfs_max_terms" type="number" min="1" max="2000000" step="10000" value="50000" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_ordering">gbfs-ordering
+          <span class="hint" data-tip="Frontier ordering. factored uses the variant's default ranking. raw uses the raw numerator bracket count. Selecting raw disables denominator-aware ordering. Does not apply to gbfs_c.">?</span>
+        </label>
+        <select id="gbfs_ordering"><option value="factored" selected>factored</option><option value="raw">raw</option></select>
+      </div>
+      <div>
+        <label for="gbfs_den_aware">gbfs-den-aware
+          <span class="hint" data-tip="Use denominator factors to adjust frontier ordering. Available with factored ordering. Does not apply to gbfs_c.">?</span>
+        </label>
+        <input id="gbfs_den_aware" type="checkbox">
+      </div>
+      <div>
+        <label for="gbfs_threads">gbfs-threads
+          <span class="hint" data-tip="Worker threads for move application. Parallel move application preserves the search order. The returned expression may differ if gbfs-max-seconds is reached or the search is cancelled. Server limit: 1.">?</span>
+        </label>
+        <input id="gbfs_threads" type="number" min="1" max="1" step="1" value="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_audit_steps">gbfs-audit-steps
+          <span class="hint" data-tip="Check each step of the returned derivation over finite fields. Applies to model_free_gbfs and gbfs_d.">?</span>
+        </label>
+        <input id="gbfs_audit_steps" type="checkbox">
+      </div>
+      <div>
+        <label for="gbfs_split_max_terms">gbfs-split-max-terms
+          <span class="hint" data-tip="Maximum number of terms searched separately by gbfs_e and gbfs_f. If splitting the original input exceeds the limit, numerator splitting is attempted before falling back to a full-expression search. 0 disables the limit. Server limit: 1000.">?</span>
+        </label>
+        <input id="gbfs_split_max_terms" type="number" min="0" max="1000" step="1" value="64" inputmode="numeric">
+      </div>
+      <div>
+        <label for="gbfs_c_cancel_max_terms">gbfs-c-cancel-max-terms
+          <span class="hint" data-tip="gbfs_c: maximum numerator or denominator term count before SymPy cancellation. Expressions exceeding the limit are skipped. 0 disables the limit. Server limit: 5000.">?</span>
+        </label>
+        <input id="gbfs_c_cancel_max_terms" type="number" min="0" max="5000" step="100" value="1200" inputmode="numeric">
+      </div>
+      <div>
+        <label for="mode">simplify-mode
+          <span class="hint" data-tip="SymPy post-processing of returned expressions. none leaves them unchanged. cancel cancels common polynomial factors. expand cancels factors and then expands the expression. simplify applies SymPy's simplify function.">?</span>
+        </label>
+        <select id="mode">
+          <option value="none" selected>none</option>
+          <option value="cancel">cancel</option>
+          <option value="expand">expand</option>
+          <option value="simplify">simplify</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Sticks around until the next run: a clamped tunable must not be reported in the
+         status line, which the poll loop overwrites a second later. -->
+    <div id="paramNote" class="status" style="display:none"></div>
+
+    <button id="go">Simplify</button>
+    <button id="stop" style="display:none">Stop</button>
+    <div id="status" class="status"></div>
+    <!-- Earlier runs kept in this browser's localStorage (inputs + results); see the
+         "local persistence" block in the script. -->
+    <div id="historyBar" class="status" style="display:none">
+      saved in this browser:
+      <select id="history"></select>
+      <button type="button" id="historyClear">forget all</button>
+    </div>
+  </div>
+
+  <div id="results"></div>
+
+  <!-- #5 diff feature: simplify A - B; a result of 0 means A and B are equal.
+       Reuses the main /api/jobs endpoint by submitting "(A) - (B)". -->
+  <div class="panel">
+    <label>Compare expressions</label>
+    <div class="kv" style="margin-top:4px">
+      Compare A and B numerically, or simplify A &minus; B using the selected algorithms.
+      A nonzero simplification result does not rule out equality.
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div>
+        <label for="exprA">A</label>
+        <textarea id="exprA" spellcheck="false"
+          placeholder="ab(1,3)*sb(2,4)/(ab(1,2)*sb(1,2))"></textarea>
+      </div>
+      <div>
+        <label for="exprB">B</label>
+        <textarea id="exprB" spellcheck="false"
+          placeholder="ab(1,4)*sb(2,3)/(ab(1,2)*sb(1,2))"></textarea>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <label for="diffNpoint">n-point (this comparison)
+        <span class="hint" data-tip="Number of external legs for this comparison. auto uses the largest leg label in A.">?</span>
+      </label>
+      <select id="diffNpoint">
+        <option value="">auto (from A)</option>
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+      </select>
+    </div>
+    <div style="margin-top:10px">
+      <label>Live preview: A &minus; B</label>
+      <div id="diffPreview" class="preview mjx"></div>
+    </div>
+    <button id="goNumCheck">Compare numerically</button>
+    <button id="goDiff">Simplify A &minus; B</button>
+    <div id="diffStatus" class="status"></div>
+    <div id="diffResults"></div>
+  </div>
+</div>
+
+<!-- notation reference modal (opened by the ? next to Expression) -->
+<div class="modal-backdrop" id="notationModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Input notation">
+    <span class="modal-x" id="notationClose" role="button" aria-label="Close">&times;</span>
+    <h2>Input notation</h2>
+    <p class="note">For massless four-, five- and six-point expressions.</p>
+
+    <h3>Brackets</h3>
+    <div class="ntab">
+      <span class="in">ab(i,j)</span><span>$\langle i\,j\rangle$</span>
+      <span class="in">sb(i,j)</span><span>$[\,i\,j\,]$</span>
+    </div>
+
+    <h3>Mandelstam invariants</h3>
+    <div class="ntab">
+      <span class="in">s(i,j,…)</span><span>$s_{ij\ldots}=(p_i+p_j+\ldots)^2$</span>
+      <span class="in">s(i,j)</span><span>$s_{ij}=\langle i\,j\rangle[\,j\,i\,]$</span>
+    </div>
+
+    <h3>Dirac chains</h3>
+    <div class="ntab">
+      <span class="in">chain('type', a, […], …, b)</span><span>$\langle a|\cdots|b]$</span>
+    </div>
+    <p class="note">Use a quoted type: <span class="in">'aa'</span>,
+       <span class="in">'as'</span>, <span class="in">'sa'</span> or <span class="in">'ss'</span>.
+       The two letters specify the left and right brackets, with a for angle and s for square.
+       Each list specifies a sum of momenta.</p>
+    <div class="ntab" style="margin-top:6px">
+      <span class="in">chain('as',5,[1,6],2)</span><span>$\langle 5|1{+}6|2]=\langle 5\,1\rangle[1\,2]+\langle 5\,6\rangle[6\,2]$</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- ab/sb sympy-string -> LaTeX -------------------------------------------
+// Handles the common amplitude shape (monomial / monomial ratio) well; nested
+// sums render acceptably but without perfect grouping. Brackets + powers are
+// always correct, which is the priority.
+// split a comma-list at depth 0 (so [..] channels stay intact)
+function splitArgsDepth0(s) {
+  let depth = 0, parts = [], cur = '';
+  for (const c of s) {
+    if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    if (c === ',' && depth === 0) { parts.push(cur); cur = ''; }
+    else cur += c;
+  }
+  parts.push(cur);
+  return parts;
+}
+function channelToLatex(ch) {            // "[1,6]" -> "1+6"
+  return ch.trim().replace(/^\[|\]$/g, '').split(',').map(x => x.trim()).join('+');
+}
+// chain('as',5,[1,6],2) -> \langle 5|1+6|2]   (4 end-types: aa/as/sa/ss)
+function chainsToLatex(s) {
+  let out = '', i = 0;
+  while (i < s.length) {
+    const idx = s.indexOf('chain(', i);
+    if (idx < 0) { out += s.slice(i); break; }
+    out += s.slice(i, idx);
+    let j = idx + 6, depth = 1;
+    while (j < s.length && depth > 0) { if (s[j] === '(') depth++; else if (s[j] === ')') depth--; if (depth === 0) break; j++; }
+    const args = splitArgsDepth0(s.slice(idx + 6, j));
+    const type = args[0].replace(/['"]/g, '').trim();
+    const a = args[1].trim(), b = args[args.length - 1].trim();
+    const chans = args.slice(2, args.length - 1).map(channelToLatex);
+    const L = type[0] === 'a' ? '\\langle ' : '[';
+    const R = type[1] === 'a' ? '\\rangle' : ']';
+    out += L + a + '|' + chans.join('|') + '|' + b + R;
+    i = j + 1;
+  }
+  return out;
+}
+// s(1,2,6) -> s_{126}  (concatenate single-digit legs; comma-join otherwise)
+function mandelstamsToLatex(s) {
+  return s.replace(/s\(\s*([\d\s,]+?)\s*\)/g, (_, legs) => {
+    const arr = legs.split(',').map(x => x.trim());
+    return 's_{' + (arr.every(x => x.length === 1) ? arr.join('') : arr.join(',')) + '}';
+  });
+}
+function bracketsToLatex(s) {
+  s = chainsToLatex(s);                  // Dirac chains first (they contain no ab/sb text)
+  s = mandelstamsToLatex(s);             // then Mandelstam s(...)  (note: sb( is untouched)
+  s = s.replace(/ab\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, '\\langle $1\\,$2\\rangle');
+  s = s.replace(/sb\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, '[$1\\,$2]');
+  return s;
+}
+// Render a single atom (a function call like ab(1,2)/sb/s/chain, a number, or a
+// bare symbol). Atoms never contain top-level +, -, *, / — those are handled by
+// the recursive-descent parser below, so precedence is respected.
+function atomToLatex(s) {
+  s = bracketsToLatex(s.trim());
+  s = s.replace(/\bI\b/g, 'i');            // imaginary unit
+  return s;
+}
+// Recursive-descent parser: expr := term ((+|-) term)* ;
+// term := factor ((* | /) factor)* ; factor := atom (** exponent)?.
+// Multiplication and division share precedence and bind left-to-right, so a/b*c
+// = (a/b)*c keeps c in the NUMERATOR — fixing the old splitTopLevel which dumped
+// everything after the first '/' (and any following '+') into the denominator.
+// Each parse fn returns { latex, isSum }; isSum marks an additive expression that
+// must be parenthesized when used as a factor/power/denominator.
+function parseSpinorExpr(s, opts) {
+  const prefactor = !!(opts && opts.prefactor);   // gbfs_f only: leading 1/A prefactor spelling
+  let i = 0;
+  const n = s.length;
+  const skip = () => { while (i < n && s[i] === ' ') i++; };
+  const wrap = (f) => f.isSum ? '\\left(' + f.latex + '\\right)' : f.latex;
+
+  function parseAtom() {
+    skip();
+    if (s[i] === '(') {
+      i++;                                 // consume '('
+      const e = parseExpr();
+      skip();
+      if (s[i] === ')') i++;               // consume ')'
+      return e;                            // parens are re-added by callers via wrap()
+    }
+    let buf = '';
+    while (i < n) {
+      const c = s[i];
+      if (c === '+' || c === '-' || c === '*' || c === '/' || c === ')') break;
+      if (c === '(') {                     // function call: swallow balanced parens
+        let d = 0;
+        while (i < n) {
+          if (s[i] === '(') d++;
+          else if (s[i] === ')') { d--; buf += s[i]; i++; if (d === 0) break; continue; }
+          buf += s[i]; i++;
+        }
+        continue;
+      }
+      buf += c; i++;
+    }
+    return { latex: atomToLatex(buf), isSum: false };
+  }
+
+  function parseFactor() {
+    const base = parseAtom();
+    skip();
+    if (s[i] === '*' && s[i + 1] === '*') { // power
+      i += 2;
+      skip();
+      let sign = '';
+      if (s[i] === '-' || s[i] === '+') { sign = s[i] === '-' ? '-' : ''; i++; }
+      const exp = parseAtom();
+      return { latex: wrap(base) + '^{' + sign + exp.latex + '}', isSum: false };
+    }
+    return base;
+  }
+
+  function parseTerm() {
+    const num = [parseFactor()];
+    const den = [];
+    while (true) {
+      skip();
+      if (s[i] === '*' && s[i + 1] !== '*') { i++; num.push(parseFactor()); }
+      else if (s[i] === '/') { i++; den.push(parseFactor()); }
+      else break;
+    }
+    if (den.length === 0) {
+      if (num.length === 1) return num[0];           // propagate isSum of a lone factor
+      return { latex: num.map(wrap).join('\\,'), isSum: false };
+    }
+    const denL = den.map(wrap).join('\\,');
+    // Pull the denominator OUT FRONT when a numerator factor is a sum that itself
+    // contains fractions, so `(A/C + B/D)/E` renders as `1/E · (A/C + B/D)` instead
+    // of a three-story fraction (the shape factor_terms leaves after hoisting a shared
+    // pole out of a summed gbfs_f result). OPT-IN only (prefactor) so gbfs_e and every
+    // other backend keep their existing two-story rendering — matches the reconstruct.py
+    // opt-in, so the shape is NEVER sniffed on non-gbfs_f output. Only fires on a
+    // nested-fraction sum (its latex has a \dfrac); a plain sum like (a+b)/c is unaffected.
+    const isNestedSum = (f) => f.isSum && f.latex.indexOf('\\dfrac') !== -1;
+    const nested = prefactor ? num.filter(isNestedSum) : [];
+    if (nested.length) {
+      const plain = num.filter((f) => !isNestedSum(f));
+      const plainL = plain.length ? plain.map(wrap).join('\\,') : '1';
+      const groups = nested.map((f) => '\\left(' + f.latex + '\\right)').join('\\,');
+      return { latex: '\\dfrac{' + plainL + '}{' + denL + '}\\,' + groups, isSum: false };
+    }
+    const numL = num.length ? num.map(wrap).join('\\,') : '1';
+    return { latex: '\\dfrac{' + numL + '}{' + denL + '}', isSum: false, num, den };
+  }
+
+  function parseExpr() {
+    skip();
+    let sign = '+';
+    if (s[i] === '+' || s[i] === '-') { sign = s[i]; i++; }
+    const terms = [{ sign, t: parseTerm() }];
+    while (true) {
+      skip();
+      if (s[i] === '+' || s[i] === '-') { const sg = s[i]; i++; terms.push({ sign: sg, t: parseTerm() }); }
+      else break;
+    }
+    if (terms.length === 1 && terms[0].sign === '+') return terms[0].t;
+    // A term that is itself a sum lost its parens in parseAtom, so re-add them
+    // whenever the sign in front of it would otherwise distribute over only its
+    // first summand: `(A) - (b1 + b2)` must render as A - (b1 + b2), not
+    // A - b1 + b2. A leading '+' sum can stay flattened (it is equivalent).
+    let out = '';
+    terms.forEach((e, k) => {
+      const l = (e.sign === '-' && e.t.isSum) ? '\\left(' + e.t.latex + '\\right)'
+                                              : e.t.latex;
+      if (k === 0) out += (e.sign === '-' ? '-' : '') + l;
+      else out += ' ' + e.sign + ' ' + l;
+    });
+    return { latex: out, isSum: true };
+  }
+
+  return parseExpr();
+}
+function chunkToLatex(s) { return parseSpinorExpr(s.trim()).latex; }
+// Pull every opaque_den(S) factor out of `s` (the engine's symbolic 1/S for a
+// polynomial-sum denominator pole, B2). Swallows one adjacent '*' and any **k power.
+// Returns { rest, opaque:[innerS, ...] } so S can be rendered UNDER the fraction bar.
+function extractOpaqueDen(s) {
+  const opaque = [];
+  let out = '', i = 0;
+  const tag = 'opaque_den(';
+  while (i < s.length) {
+    if (s.startsWith(tag, i)) {
+      let depth = 0, k = i + tag.length - 1;          // index of the '('
+      const start = k + 1;
+      for (; k < s.length; k++) {
+        if (s[k] === '(') depth++;
+        else if (s[k] === ')') { depth--; if (depth === 0) break; }
+      }
+      const inner = s.slice(start, k);
+      i = k + 1;                                       // just past ')'
+      let mult = 1;
+      const m = s.slice(i).match(/^\*\*(\d+)/);
+      if (m) { mult = parseInt(m[1], 10); i += m[0].length; }
+      for (let r = 0; r < mult; r++) opaque.push(inner);
+      if (s[i] === '*') i++;                           // separator after the factor
+      else if (out.endsWith('*')) out = out.slice(0, -1);  // or before it
+    } else { out += s[i]; i++; }
+  }
+  return { rest: out, opaque };
+}
+function exprToLatex(s, opts) {
+  if (!s || !s.trim()) return '';
+  s = s.trim();
+  const { rest, opaque } = extractOpaqueDen(s);
+  if (opaque.length === 0) return parseSpinorExpr(s, opts).latex;
+  // opaque factor(s) are denominator poles → place them under the bar.
+  const restTrim = rest.trim() || '1';
+  const parsed = parseSpinorExpr(restTrim);
+  const denChunks = opaque.map(S => '\\left(' + parseSpinorExpr(S).latex + '\\right)');
+  if (parsed.num) {
+    // `rest` is a single quotient term: merge opaque into its denominator so we
+    // get one bar instead of a nested fraction.
+    const wrap = (f) => f.isSum ? '\\left(' + f.latex + '\\right)' : f.latex;
+    const numL = parsed.num.length ? parsed.num.map(wrap).join('\\,') : '1';
+    const denL = parsed.den.map(wrap).join('\\,');
+    return '\\dfrac{' + numL + '}{' + denL + '\\,' + denChunks.join('\\,') + '}';
+  }
+  const numLatex = parsed.isSum ? '\\left(' + parsed.latex + '\\right)' : parsed.latex;
+  return '\\dfrac{' + (numLatex || '1') + '}{' + denChunks.join('\\,') + '}';
+}
+
+// ---- MathJax render helper --------------------------------------------------
+function renderMath(el, sympyStr, opts) {
+  if (!sympyStr) { el.textContent = '—'; return; }
+  try {
+    el.innerHTML = '$' + exprToLatex(sympyStr, opts) + '$';
+    if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([el]);
+    else el.textContent = sympyStr; // CDN not loaded yet / offline
+  } catch (e) { el.textContent = sympyStr; }
+}
+
+// ---- live preview -----------------------------------------------------------
+const exprEl = document.getElementById('expr');
+const previewEl = document.getElementById('preview');
+function updatePreview() { renderMath(previewEl, exprEl.value); }
+exprEl.addEventListener('input', updatePreview);
+
+// ---- submit + poll (parameterized: each panel passes its own elements) ------
+const goBtn = document.getElementById('go');
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+
+// The main-panel Stop button requests cancellation of `activeCancelJob`.
+// GBFS and SFT stop at their next cancellation check and return their best
+// form so far. CDS decoding continues.
+const stopBtn = document.getElementById('stop');
+let activeCancelJob = null;
+stopBtn.addEventListener('click', async () => {
+  if (!activeCancelJob) return;
+  stopBtn.disabled = true;
+  stopBtn.textContent = 'stopping…';
+  try { await fetch('/api/jobs/' + activeCancelJob + '/cancel', { method: 'POST' }); }
+  catch (e) { /* the poll loop will still reflect the terminal state */ }
+});
+
+function selectedAlgos() {
+  return Array.from(document.querySelectorAll('.algo:checked')).map(c => c.value);
+}
+
+// A number input's max= only constrains the spinner arrows and form validation — a TYPED
+// out-of-range value submits happily and is then clamped server-side with no feedback, so
+// the run silently ignores what the box shows. Clamp on the way out and say so.
+function clampNum(el, note) {
+  const lo = parseFloat(el.min), hi = parseFloat(el.max);
+  const v = parseFloat(el.value);
+  if (!Number.isFinite(v)) return v;
+  const c = Math.max(lo, Math.min(v, hi));
+  if (c !== v) {
+    el.value = String(c);
+    const label = (document.querySelector('label[for="' + el.id + '"]') || {}).firstChild;
+    const name = label ? label.textContent.trim() : el.id;
+    if (note) note(name + ': adjusted from ' + v + ' to ' + c + ' to meet the server limits.');
+  }
+  return c;
+}
+
+const paramNoteEl = document.getElementById('paramNote');
+function showParamNotes(notes) {
+  paramNoteEl.style.display = notes.length ? '' : 'none';
+  paramNoteEl.innerHTML = notes.map(m => '<span class="err">' + esc(m) + '</span>').join('<br>');
+}
+
+function currentOpts(notes) {
+  const note = notes ? (m) => notes.push(m) : null;
+  const o = { algorithms: selectedAlgos(), simplify_mode: document.getElementById('mode').value };
+  const np = document.getElementById('npoint').value;
+  if (np) o.n_point = parseInt(np, 10);
+  const pat = clampNum(document.getElementById('patience'), note);
+  if (Number.isFinite(pat) && pat > 0) o.sft_patience = pat;   // omit when 0 (server default)
+  const ga = clampNum(document.getElementById('gbfs_max_apps'), note);
+  if (Number.isFinite(ga) && ga > 0) o.gbfs_max_apps = ga;
+  const gs = clampNum(document.getElementById('gbfs_max_seconds'), note);
+  if (Number.isFinite(gs) && gs > 0) o.gbfs_max_seconds = gs;
+  const gt = clampNum(document.getElementById('gbfs_max_terms'), note);
+  if (Number.isFinite(gt) && gt > 0) o.gbfs_max_terms = gt;
+  o.gbfs_ordering = document.getElementById('gbfs_ordering').value;
+  o.gbfs_den_aware = document.getElementById('gbfs_den_aware').checked;
+  o.gbfs_audit_steps = document.getElementById('gbfs_audit_steps').checked;
+  const th = clampNum(document.getElementById('gbfs_threads'), note);
+  if (Number.isFinite(th) && th > 0) o.gbfs_threads = th;
+  const sm = clampNum(document.getElementById('gbfs_split_max_terms'), note);
+  if (Number.isFinite(sm) && sm >= 0) o.gbfs_split_max_terms = sm;
+  const cc = clampNum(document.getElementById('gbfs_c_cancel_max_terms'), note);
+  if (Number.isFinite(cc) && cc >= 0) o.gbfs_c_cancel_max_terms = cc;
+  return o;
+}
+
+// ctx = { expr, statusEl, resultsEl, btn }
+async function run(ctx) {
+  ctx.resultsEl.innerHTML = '';
+  ctx.resultsEl.__slotCount = 0;        // new job: drop the old fixed slots, rebuild fresh
+  // Claim this panel for the new job: any still-running poll from a previous job on this
+  // panel now sees a newer epoch and stops writing (see pollJob's `alive()` guard).
+  const myEpoch = (ctx.resultsEl.__epoch = (ctx.resultsEl.__epoch || 0) + 1);
+  const clampNotes = [];
+  const opts = currentOpts(clampNotes);
+  showParamNotes(clampNotes);
+  if (ctx.statusEl === statusEl) { ctx.form = readForm(); saveForm(); }   // main panel: persist
+  if (opts.algorithms.length === 0) {
+    ctx.statusEl.innerHTML = '<span class="err">Select at least one algorithm.</span>'; return;
+  }
+  if (!ctx.expr || !ctx.expr.trim()) {
+    ctx.statusEl.innerHTML = '<span class="err">Enter an expression.</span>'; return;
+  }
+  const body = Object.assign({ expr: ctx.expr }, opts);
+  // A panel may override n-point independently of the top selector (ctx.nPoint):
+  //   number -> force it; null -> auto with no inference (let the backend infer);
+  //   undefined -> leave the top-panel n_point untouched (main Simplify panel).
+  if (ctx.nPoint !== undefined) {
+    if (ctx.nPoint === null) delete body.n_point;
+    else body.n_point = ctx.nPoint;
+  }
+  ctx.btn.disabled = true;
+  ctx.statusEl.textContent = 'submitting…';
+  let res;
+  try {
+    res = await fetch('/api/jobs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    ctx.statusEl.innerHTML = '<span class="err">network error: ' + esc(e) + '</span>';
+    ctx.btn.disabled = false; return;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status !== 202) {
+    ctx.statusEl.innerHTML = '<span class="err">rejected (' + res.status + '): ' +
+      esc(JSON.stringify(data.detail || data)) + '</span>';
+    ctx.btn.disabled = false; return;
+  }
+  ctx.statusEl.textContent = 'queued — job ' + data.job_id + ' (n=' + data.n_point + ')'
+    + (data.note ? ' · ' + data.note : '');
+  // Every adjustment the server made (ceilings, fallbacks, aliases, dropped backends) is
+  // reported back; show it and set the inputs to the applied values.
+  if (data.clamped && Object.keys(data.clamped).length) {
+    const notes = [];
+    for (const [k, v] of Object.entries(data.clamped)) {
+      if (Array.isArray(v) && v.length === 2) {
+        notes.push(k + ': ' + v[0] + ' -> ' + v[1] + ' (adjusted by the server)');
+        const el = document.getElementById(k);
+        if (el && el.type === 'number') el.value = String(v[1]);
+        if (el && el.type === 'checkbox') el.checked = !!v[1];
+      } else {
+        notes.push(k + ': ' + JSON.stringify(v));
+      }
+    }
+    showParamNotes(clampNotes.concat(notes));
+  }
+  pollJob(data.job_id, ctx, myEpoch);
+}
+
+// Per-tab key for the main-panel in-flight job, so a page reload (or a transient poll
+// failure we recovered from) can re-attach instead of orphaning a still-running
+// server-side job (#3). Uses sessionStorage, NOT localStorage, so it is scoped to THIS
+// browser tab: with several tabs open, each remembers only the job IT submitted — a
+// second tab's submit no longer clobbers the first tab's reconnect pointer, and one
+// tab finishing (forgetJob) doesn't wipe another tab's. sessionStorage survives a
+// reload of the same tab (the case this feature exists for) but not closing it.
+// Only the main panel persists — secondary panels (diff) are cheap to re-run.
+const ACTIVE_JOB_KEY = 'simplifier.activeJob';
+function rememberJob(jobId) { try { sessionStorage.setItem(ACTIVE_JOB_KEY, jobId); } catch (e) {} }
+function forgetJob()        { try { sessionStorage.removeItem(ACTIVE_JOB_KEY); } catch (e) {} }
+
+// One poll GET, classified. A result is "attachable" only when it is HTTP 200
+// with a JSON body. Everything else is TRANSIENT: a Cloudflare Access
+// interstitial (HTML), a tunnel 5xx/524, an expired-session redirect, or a
+// dropped connection. Previously the caller did `(await fetch()).json()` with no
+// guard, so any non-JSON body threw a SyntaxError ("The string did not match the
+// expected pattern." on Safari) and killed the poll loop while the job kept
+// running server-side. 404 means the job is truly gone (server restarted / job
+// evicted from the in-memory store).
+async function pollOnce(jobId) {
+  const g = await fetch('/api/jobs/' + jobId, { headers: { 'accept': 'application/json' } });
+  if (g.status === 404) return { gone: true };
+  const ct = g.headers.get('content-type') || '';
+  if (!g.ok || !ct.includes('json')) return { transient: true, status: g.status };
+  return { jr: await g.json() };   // may still throw on a truncated body -> caught by caller
+}
+
+// `epoch` is this poll's GENERATION TOKEN for its panel. run()/reattach bump
+// ctx.resultsEl.__epoch when they claim the panel for a new job; this loop writes to the
+// panel (status, results, Stop target, sessionStorage) ONLY while its epoch is still the
+// current one. The instant a newer job supersedes this panel, `alive()` goes false and
+// this poll returns WITHOUT touching any shared UI — so two overlapping polls (e.g. a
+// reconnect probe racing a fresh submit) can never interleave one job's results with
+// another's. Correctness guarantee: a panel only ever shows the job it currently owns.
+async function pollJob(jobId, ctx, epoch) {
+  const alive = () => ctx.resultsEl.__epoch === epoch;
+  if (!alive()) return;   // already superseded before we even started
+  const t0 = Date.now();
+  const isMain = ctx.statusEl === statusEl;   // only the main panel shows Stop / persists
+  if (isMain) {
+    activeCancelJob = jobId;
+    rememberJob(jobId);
+    stopBtn.style.display = ''; stopBtn.disabled = false; stopBtn.textContent = 'Stop';
+  }
+  let fails = 0;                 // consecutive transient failures (reset on any good poll)
+  const MAX_FAILS = 40;         // ~2 min of blips at the 3s backoff before we give up
+  while (true) {
+    await new Promise(r => setTimeout(r, fails ? 3000 : 1500));
+    if (!alive()) return;   // a newer job took over this panel during the wait
+    let out;
+    try { out = await pollOnce(jobId); }
+    catch (e) { out = { transient: true }; }   // network drop / .json() on a partial body
+    if (!alive()) return;   // ...or during the fetch — drop this (stale) response
+    if (out.gone) {
+      ctx.statusEl.innerHTML = '<span class="err">This job is no longer available on the server. Submit it again.</span>';
+      if (isMain) forgetJob();
+      break;
+    }
+    if (out.transient) {
+      // #1: retry instead of breaking — a single Access/tunnel blip must not
+      // abandon a running job. Keep the sessionStorage pointer set so a reload can re-attach.
+      if (++fails > MAX_FAILS) {
+        ctx.statusEl.innerHTML = '<span class="err">Connection lost. The job may still be running. Reload the page to resume status updates.</span>';
+        break;
+      }
+      const secs = ((Date.now() - t0) / 1000).toFixed(0);
+      ctx.statusEl.textContent = 'reconnecting… (' + secs + 's elapsed, retry ' + fails + ')';
+      continue;
+    }
+    fails = 0;
+    const jr = out.jr;
+    const secs = ((Date.now() - t0) / 1000).toFixed(0);
+    ctx.statusEl.textContent = 'status: ' + jr.status + ' (' + secs + 's elapsed)';
+    if (['done', 'error', 'timeout', 'cancelled'].includes(jr.status)) {
+      renderResults(jr, ctx.resultsEl);
+      if (isMain) { forgetJob(); saveHistory(jobId, ctx.form || null, jr); }
+      break;
+    }
+    // still running: show finished backends + skeletons for the rest (first-done-first-shown)
+    renderProgress(jr, ctx.resultsEl, t0);
+  }
+  if (!alive()) return;   // superseded meanwhile — leave the button/Stop to the newer job
+  if (isMain) { activeCancelJob = null; stopBtn.style.display = 'none'; }
+  ctx.btn.disabled = false;
+}
+
+function mjxDiv(sympyStr, prefactor) {
+  // a div MathJax will fill, carrying the raw expr in data-expr. data-prefactor="1"
+  // opts the deferred renderMath into the leading 1/A prefactor spelling (gbfs_f only).
+  return '<div class="mjx" data-expr="' + encodeURIComponent(sympyStr || '') + '"' +
+         (prefactor ? ' data-prefactor="1"' : '') + '></div>';
+}
+
+// A derivation row's collapsible detail: the instantiated rewrite RULE (rendered),
+// the raw ab/sb text (selectable), and copy / send-to-verifier buttons. Folding all
+// of this behind a "▸ details" toggle keeps the default panel uncluttered while the
+// raw text stays one click away for pasting into the equivalence checker below.
+let _derUid = 0;
+function stepDetail(rawExpr, ruleLhs, ruleRhs) {
+  const id = 'der_' + (++_derUid);
+  const enc = encodeURIComponent(rawExpr || '');
+  let inner = '';
+  if (ruleRhs) {
+    inner += '<div class="kv">rule</div>'
+          + '<div class="mjx-rule" data-lhs="' + encodeURIComponent(ruleLhs || '')
+          + '" data-rhs="' + encodeURIComponent(ruleRhs) + '"></div>';
+  }
+  inner += '<div class="mono">' + esc(rawExpr || '') + '</div>'
+        + '<div class="der-btns">'
+        + '<button type="button" class="der-btn der-copy" data-expr="' + enc + '">copy</button>'
+        + '<button type="button" class="der-btn der-send" data-slot="A" data-expr="' + enc + '">&rarr; A</button>'
+        + '<button type="button" class="der-btn der-send" data-slot="B" data-expr="' + enc + '">&rarr; B</button>'
+        + '</div>';
+  return '<button type="button" class="der-toggle" data-tgt="' + id + '">&#9656; details</button>'
+       + '<div class="der-detail" id="' + id + '" hidden>' + inner + '</div>';
+}
+
+// Render a "lhs -> rhs" rewrite (two sympy-notation strings) as one math line.
+// Lazy: only called when its detail box is first opened (so MathJax never typesets
+// hidden boxes, and long momentum expansions cost nothing until viewed).
+function renderRuleEl(el) {
+  if (el.dataset.rendered) return;
+  const lhs = decodeURIComponent(el.getAttribute('data-lhs') || '');
+  const rhs = decodeURIComponent(el.getAttribute('data-rhs') || '');
+  try {
+    el.innerHTML = '$' + exprToLatex(lhs) + ' \\to ' + exprToLatex(rhs) + '$';
+    if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([el]);
+    else el.textContent = lhs + ' -> ' + rhs;
+  } catch (e) { el.textContent = lhs + ' -> ' + rhs; }
+  el.dataset.rendered = '1';
+}
+
+// One delegated click handler per results container (idempotent): expand toggles,
+// copy-to-clipboard, and send-to-verifier (drops the raw expr into the A/B fields
+// of the equivalence checker, then scrolls it into view).
+function bindDerivation(container) {
+  if (container.__derBound) return;
+  container.__derBound = true;
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn || !container.contains(btn)) return;
+    if (btn.classList.contains('der-toggle')) {
+      const d = document.getElementById(btn.dataset.tgt);
+      if (!d) return;
+      if (d.hasAttribute('hidden')) {
+        d.removeAttribute('hidden');
+        const rule = d.querySelector('.mjx-rule[data-lhs]');
+        if (rule) renderRuleEl(rule);
+        btn.innerHTML = '&#9662; details';
+      } else {
+        d.setAttribute('hidden', '');
+        btn.innerHTML = '&#9656; details';
+      }
+    } else if (btn.classList.contains('der-copy')) {
+      const txt = decodeURIComponent(btn.dataset.expr || '');
+      if (navigator.clipboard) navigator.clipboard.writeText(txt);
+      const o = btn.textContent; btn.textContent = 'copied';
+      setTimeout(() => { btn.textContent = o; }, 1200);
+    } else if (btn.classList.contains('der-send')) {
+      const txt = decodeURIComponent(btn.dataset.expr || '');
+      const tgt = (btn.dataset.slot === 'A') ? exprAEl : exprBEl;
+      if (tgt) { tgt.value = txt; updateDiffPreview(); tgt.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      const o = btn.innerHTML; btn.innerHTML = '&#10003; ' + btn.dataset.slot;
+      setTimeout(() => { btn.innerHTML = o; }, 1200);
+    }
+  });
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Render a raw expression string as a <div class="mono">, but fold it behind a
+// collapsible <details> when it is long enough to swamp the page (e.g. a gbfs
+// result on an opaque input). The copy button sits OUTSIDE the <details> so
+// copying never toggles the fold, and reuses the delegated der-copy handler.
+const MONO_FOLD_CHARS = 400;
+function monoBlock(raw) {
+  const s = raw || '';
+  if (s.length <= MONO_FOLD_CHARS) return '<div class="mono">' + esc(s) + '</div>';
+  const enc = encodeURIComponent(s);
+  const preview = esc(s.slice(0, 96).replace(/\s+/g, ' ')) + '…';
+  const n = s.length.toLocaleString();
+  return '<div class="min-raw">'
+       + '<details class="mono-fold"><summary>'
+       + '<span class="fold-prev mono">' + preview + '</span>'
+       + '<span class="fold-meta">' + n + ' characters &middot; Show full expression</span></summary>'
+       + '<div class="mono">' + esc(s) + '</div></details>'
+       + '<button type="button" class="der-btn der-copy" data-expr="' + enc + '">copy</button>'
+       + '</div>';
+}
+
+// A greedy rollout keeps walking for max_steps even after it reaches the
+// minimum. The DERIVATION we want to show is origin -> answer, i.e. the prefix
+// up to the step that first reaches the minimum bracket count. Everything after
+// is post-answer wandering and is hidden. We also drop intra-prefix cycles
+// (revisited states) so the shown chain is the cleaned path to the answer.
+function provingPrefix(traj, startExpr, startBrackets, rawMin) {
+  // index of the first step that reaches the minimum (the answer state)
+  let minIdx = -1;
+  if (rawMin < startBrackets) {
+    for (let i = 0; i < traj.length; i++) {
+      if (traj[i].brackets_after === rawMin) { minIdx = i; break; }
+    }
+  }
+  if (minIdx < 0) return { steps: [], hidden: traj.length };
+
+  let prefix = traj.slice(0, minIdx + 1);
+  // Collapse cycles: if expr_after repeats a state we've already seen along the
+  // prefix (incl. the input), jump straight there — removes up-then-back detours.
+  const seen = new Map();          // expr string -> position in cleaned chain
+  seen.set(startExpr, -1);         // -1 = the input row
+  const cleaned = [];
+  for (const s of prefix) {
+    const key = s.expr_after;
+    if (seen.has(key)) {
+      const at = seen.get(key);
+      cleaned.length = at + 1;     // truncate back to where this state first appeared
+    } else {
+      seen.set(key, cleaned.length);
+      cleaned.push(s);
+    }
+  }
+  return { steps: cleaned, hidden: traj.length - prefix.length };
+}
+
+function renderDerivation(r, startExpr) {
+  const traj = r.derivation;
+  if (!Array.isArray(traj) || traj.length === 0) {
+    return '<div class="steps"><div class="steps-head">Derivation</div>' +
+           '<div class="kv">no steps recorded</div></div>';
+  }
+  const startBrackets = r.bracket_count_start;
+  const rawMin = (r.extra && r.extra.raw_bracket_count_min != null)
+    ? r.extra.raw_bracket_count_min : r.bracket_count_min;
+
+  const { steps, hidden } = provingPrefix(traj, startExpr, startBrackets, rawMin);
+
+  const head = steps.length > 0
+    ? ('Derivation &middot; ' + steps.length + ' step' + (steps.length > 1 ? 's' : ''))
+    : 'Derivation &middot; no simpler form found';
+  let html = '<div class="steps"><div class="steps-head">' + head + '</div>';
+  // input row — details (raw text + copy/send buttons) tucked into the expander
+  html += '<div class="step"><div class="step-hd"><span class="step0">Input</span>'
+        + '<span class="step-bk">' + startBrackets + ' brackets</span></div>'
+        + mjxDiv(startExpr)
+        + stepDetail(startExpr, null, null) + '</div>';
+
+  if (steps.length === 0) {
+    // No reducing path: either the input is already minimal, or the model
+    // missed a reduction. We can't tell which — state it honestly.
+    html += '<div class="step"><div class="kv">explored ' + traj.length
+          + ' step' + (traj.length === 1 ? '' : 's') + " without getting below "
+          + startBrackets + ' brackets.'
+          + '</div></div>';
+  } else {
+    steps.forEach((s, idx) => {
+      const isAnswer = (idx === steps.length - 1);   // last shown = the answer
+      const ident = s.identity != null ? s.identity : '?';
+      const brk = s.bracket != null ? s.bracket : '';
+      const slot = (s.term_slot && s.term_slot > 0) ? ' (term ' + s.term_slot + ')' : '';
+      html += '<div class="step' + (isAnswer ? ' min' : '') + '">'
+            + '<div class="step-hd">'
+            + '<span><span class="step-act">' + esc(ident) + '</span> &middot; '
+            + esc(brk) + esc(slot) + (isAnswer ? ' &middot; <b>answer</b>' : '') + '</span>'
+            + '<span class="step-bk">' + s.brackets_before + '&rarr;' + s.brackets_after + ' brackets</span>'
+            + '</div>'
+            + mjxDiv(s.expr_after)
+            + stepDetail(s.expr_after, s.rule_lhs, s.rule_rhs) + '</div>';
+    });
+    // "post-answer wandering" note only makes sense when an answer was reached.
+    if (hidden > 0) {
+      html += '<div class="kv" style="padding-top:8px">+' + hidden
+            + ' later steps omitted</div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+// Pretty display labels for the algorithm keys (keys are the API/log contract).
+const ALGO_LABELS = {
+  sft_greedy: 'SFT-greedy',
+  sft_best_of_n: 'SFT best-of-N',
+  cds_oneshot: 'CDS one-shot',
+  model_free_gbfs: 'model_free_gbfs',
+  gbfs_c: 'gbfs_c',
+  gbfs_d: 'gbfs_d',
+  gbfs_e: 'gbfs_e',
+  gbfs_f: 'gbfs_f',
+};
+function algoLabel(k) { return ALGO_LABELS[k] || k; }
+
+function renderResults(jr, container) {
+  // A cancelled job can carry GBFS/SFT results and results from CDS, which ignores
+  // the cancellation event. Render any returned results with a cancellation banner.
+  if (jr.status !== 'done' && jr.status !== 'cancelled') {
+    container.innerHTML = '<div class="panel err">' + esc(jr.status) + ': ' +
+      esc(jr.error || '(no detail)') + '</div>';
+    return;
+  }
+  if (jr.status === 'cancelled' && !(jr.results && jr.results.length)) {
+    container.innerHTML = '<div class="panel">Stopped. No expression was returned.</div>';
+    return;
+  }
+  const startExpr = (jr.request && jr.request.expr) || '';
+  container.innerHTML = '';
+  if (jr.status === 'cancelled') {
+    container.innerHTML = '<div class="panel">Stopped. Showing the available results.</div>';
+  }
+  (jr.results || []).forEach(r => {
+    container.appendChild(buildResultCard(r, startExpr));
+  });
+  container.querySelectorAll('.mjx[data-expr]').forEach(el => {
+    renderMath(el, decodeURIComponent(el.getAttribute('data-expr')),
+               { prefactor: el.getAttribute('data-prefactor') === '1' });
+  });
+  bindDerivation(container);   // expand toggles + copy / send-to-verifier (once per container)
+}
+
+// Build one result card (a DOM element). Shared by the terminal renderResults and the
+// progressive renderProgress so a finished-early backend renders identically to the final.
+// Why the run ended and what it skipped: every stop and every rejected move is reported.
+function runNotes(r) {
+  const ex = r.extra || {};
+  const bits = [];
+  if (ex.stop_reason) bits.push('stopped: ' + esc(String(ex.stop_reason)));
+  if (ex.decode_still_running) bits.push('Timed out. Decoding is still running.');
+  if (ex.raw_numerator_brackets_min !== undefined && ex.raw_numerator_brackets_min !== null)
+    bits.push('raw numerator brackets ' + ex.raw_numerator_brackets_start + ' &rarr; ' + ex.raw_numerator_brackets_min);
+  const skips = Object.entries(ex).filter(([k, v]) => k.endsWith('_skips') && v).map(([k, v]) => k.replace(/_skips$/, '') + '=' + v);
+  if (skips.length) bits.push('skipped moves: ' + esc(skips.join(', ')));
+  if (ex.ordering) bits.push('ordering ' + esc(String(ex.ordering)) + (ex.den_aware ? ' + denominator-aware' : ''));
+  if (ex.post_process_timed_out) bits.push('Post-processing timed out. Showing the backend output without post-processing.');
+  if (ex.overran) bits.push('Result received after the waiting time limit.');
+  if (ex.soundness_verified === true) bits.push('finite-field check passed');
+  return bits.length ? '<div class="kv" style="margin-top:4px">' + bits.join(' &middot; ') + '</div>' : '';
+}
+
+function buildResultCard(r, startExpr) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const isZero = (r.min_expr_str || r.final_expr_str || '').trim() === '0';
+  const solved = isZero
+    ? '<span class="tag-ok">&equiv; 0 (equal)</span>'
+    : (r.solved ? '<span class="tag-ok">solved</span>' : '<span class="tag-no">not solved</span>');
+  const err = (r.extra && r.extra.error) ? '<div class="err">' + esc(r.extra.error) + '</div>' : '';
+  const reconMin = r.extra && (r.extra.reconstructed_min || r.extra.reconstructed_final);
+  const left =
+    '<div>' +
+    '<h3>' + esc(algoLabel(r.algorithm)) + ' &middot; ' + solved + '</h3>' +
+    '<div class="kv">brackets ' + r.bracket_count_start + ' &rarr; min ' +
+      r.bracket_count_min + ' (final ' + r.bracket_count_final + ') &middot; ' +
+      r.n_steps + ' steps &middot; ' + (r.duration_s || 0).toFixed(1) + 's' +
+      runNotes(r) + '</div>' +
+    '<div class="kv" style="margin-top:8px">Returned expression</div>' +
+    mjxDiv(reconMin || r.min_expr_str || r.final_expr_str, r.algorithm === 'gbfs_f') +
+    monoBlock(reconMin || r.min_expr_str || r.final_expr_str || '') +
+    (reconMin && reconMin !== (r.min_expr_str || r.final_expr_str)
+      ? '<div class="kv" style="margin-top:4px">Bracket notation (ab/sb)</div>' +
+        monoBlock(r.min_expr_str || r.final_expr_str || '')
+      : '') +
+    err + '</div>';
+  // Only show the derivation panel when the result is actually simpler than the
+  // input (min < start, or it collapsed to 0). If min == start the algorithm made
+  // no progress, so there is no derivation worth showing — give the left panel the
+  // full width instead of a "no simpler form found" placeholder beside it.
+  const improved = isZero || (r.bracket_count_min >= 0 && r.bracket_count_min < r.bracket_count_start);
+  if (improved) {
+    const right = '<div>' + renderDerivation(r, startExpr) + '</div>';
+    card.innerHTML = '<div class="result-grid">' + left + right + '</div>';
+  } else {
+    card.innerHTML = left;
+  }
+  return card;
+}
+
+// Translate the server's job start into a CLIENT-clock baseline (ms) for the running
+// timers. We anchor to (server_now - started_at) — the true elapsed the server reports —
+// rather than to any client-side submit/poll time, so the elapsed shown is the REAL time
+// since the job started: correct after a page reload/reconnect (the browser's own start
+// time is gone then) and immune to client/server clock skew. `fallbackMs` (the poll start)
+// is used only for an older server that doesn't send server_now/started_at.
+function skeletonAnchorMs(jr, fallbackMs) {
+  const sn = jr && jr.server_now, st = jr && jr.started_at;
+  if (typeof sn === 'number' && typeof st === 'number' && sn >= st) {
+    return Date.now() - (sn - st) * 1000;   // client-ms instant the job effectively started
+  }
+  return fallbackMs;
+}
+
+// Progressive render while the job is still running. FIXED SLOT ORDER: one slot per
+// algorithm, in REQUEST order, created once and never reordered. Each slot shows a skeleton
+// while its backend runs and swaps to the result card IN PLACE the moment that backend
+// finishes — so a finished result appears immediately (first-done-first-shown) WITHOUT any
+// card jumping position, and neither the skeletons nor the finished cards ever get reordered
+// or re-typeset. Running timers are anchored to the server's true job start (skeletonAnchorMs).
+function renderProgress(jr, container, fallbackMs) {
+  const partial = jr.partial;
+  if (!Array.isArray(partial) || partial.length === 0) return false;
+  const startExpr = (jr.request && jr.request.expr) || '';
+  const anchorMs = skeletonAnchorMs(jr, fallbackMs);
+
+  // (Re)build the fixed set of slots only when the algorithm count changes (i.e. a new job,
+  // after run() clears the container). Never on a mere status change — that is handled
+  // per-slot below without disturbing the others.
+  if (container.__slotCount !== partial.length) {
+    container.innerHTML = '';
+    container.__slots = [];
+    container.__slotCount = partial.length;
+    for (let i = 0; i < partial.length; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'progress-slot';
+      slot.dataset.state = '';   // '', 'running', or 'done'
+      container.appendChild(slot);
+      container.__slots.push(slot);
+    }
+  }
+
+  partial.forEach((p, i) => {
+    const slot = container.__slots[i];
+    if (!slot) return;
+    const isDone = !!(p && p.status === 'done' && p.result);
+    if (isDone && slot.dataset.state !== 'done') {
+      // finished: replace this slot's skeleton with its result card, typeset only it
+      slot.innerHTML = '';
+      slot.appendChild(buildResultCard(p.result, startExpr));
+      slot.dataset.state = 'done';
+      slot.querySelectorAll('.mjx[data-expr]').forEach(el =>
+        renderMath(el, decodeURIComponent(el.getAttribute('data-expr')),
+                   { prefactor: el.getAttribute('data-prefactor') === '1' }));
+      bindDerivation(slot);
+    } else if (!isDone && slot.dataset.state !== 'running') {
+      slot.innerHTML = '';
+      slot.appendChild(buildSkeletonCard(p ? p.algorithm : '', anchorMs));
+      slot.dataset.state = 'running';
+    }
+    // else: unchanged — leave the DOM in place (skeleton ticker keeps advancing;
+    // a done card is never rebuilt, so it never flickers or moves).
+  });
+  return true;
+}
+
+// A shimmer placeholder for a backend that hasn't returned yet. `anchorMs` is the
+// client-clock instant the job started (from the server, see skeletonAnchorMs). The timer
+// is advanced both on each rebuild (seeded below) and by a light 1s ticker between polls.
+function buildSkeletonCard(algoKey, anchorMs) {
+  const card = document.createElement('div');
+  card.className = 'card skeleton';
+  const start = Number.isFinite(anchorMs) ? anchorMs : Date.now();
+  // Seed the timer with the CORRECT elapsed at creation (not 0.0s) so a skeleton created
+  // mid-run — e.g. when another backend just finished and forced a rebuild — never flashes
+  // back to zero before the 1s ticker updates it.
+  const s0 = ((Date.now() - start) / 1000).toFixed(1);
+  card.innerHTML =
+    '<div class="skl-head">' +
+    '<h3>' + esc(algoLabel(algoKey)) + '</h3>' +
+    '<span class="skl-timer" data-start="' + start + '">running… ' + s0 + 's</span>' +
+    '</div>' +
+    '<div class="skl-line skl-shimmer" style="width:82%"></div>' +
+    '<div class="skl-line skl-shimmer" style="width:64%"></div>' +
+    '<div class="skl-line skl-shimmer" style="width:73%"></div>';
+  return card;
+}
+
+// One global ticker keeps every running skeleton's elapsed time moving between the
+// ~2s polls. Cheap no-op when there are no skeletons on the page.
+setInterval(() => {
+  document.querySelectorAll('.skl-timer[data-start]').forEach(el => {
+    const s = ((Date.now() - Number(el.getAttribute('data-start'))) / 1000).toFixed(1);
+    el.textContent = 'running… ' + s + 's';
+  });
+}, 1000);
+
+// ---- main panel ----
+goBtn.addEventListener('click', () => run({
+  expr: exprEl.value, statusEl: statusEl, resultsEl: resultsEl, btn: goBtn,
+}));
+
+// ---- reconnect-after-submit (#3) ----
+// On RELOAD of this tab, re-attach to the still-running main-panel job THIS tab
+// submitted (the id is in per-tab sessionStorage). Jobs live in the server's in-memory
+// store, so this works only while that process is alive; a vanished job (server
+// restarted / evicted) returns 404 and is cleared silently. A long gbfs run whose tab
+// was reloaded (or whose poll hit a transient blip) thus resumes into the same view
+// instead of being lost. (Closing the tab entirely drops the pointer — sessionStorage
+// is per-tab-session by design, which is what keeps multiple tabs from colliding.)
+(async function reattachActiveJob() {
+  let jobId;
+  try { jobId = sessionStorage.getItem(ACTIVE_JOB_KEY); } catch (e) { return; }
+  if (!jobId) return;
+  // Claim the main panel for this reconnect BEFORE the async probe. If the user submits a
+  // fresh job during the probe (Go is still enabled here), that submit bumps the epoch and
+  // every branch below bails — so the reconnect can never clobber the new job (no cross-talk).
+  const myEpoch = (resultsEl.__epoch = (resultsEl.__epoch || 0) + 1);
+  // Probe once so we don't flip the UI into "running" for a job that already
+  // finished or vanished while the tab was reloading.
+  let out;
+  try { out = await pollOnce(jobId); }
+  catch (e) { out = { transient: true }; }
+  if (resultsEl.__epoch !== myEpoch) return;   // a new job took the panel during the probe
+  if (out.gone) { forgetJob(); return; }
+  if (out.jr && ['done', 'error', 'timeout', 'cancelled'].includes(out.jr.status)) {
+    renderResults(out.jr, resultsEl);
+    statusEl.textContent = 'status: ' + out.jr.status + ' (recovered)';
+    forgetJob();
+    saveHistory(jobId, null, out.jr);
+    return;
+  }
+  // running, or a transient probe failure -> resume the poll loop
+  statusEl.textContent = 'reconnecting to job ' + jobId + '…';
+  goBtn.disabled = true;
+  pollJob(jobId, { statusEl: statusEl, resultsEl: resultsEl, btn: goBtn }, myEpoch);
+})();
+
+// ---- diff panel (#5): submit "(A) - (B)" to the same endpoint ----
+const exprAEl = document.getElementById('exprA');
+const exprBEl = document.getElementById('exprB');
+const diffPreviewEl = document.getElementById('diffPreview');
+const goDiffBtn = document.getElementById('goDiff');
+const diffStatusEl = document.getElementById('diffStatus');
+const diffResultsEl = document.getElementById('diffResults');
+
+function diffExpr() {
+  const A = (exprAEl.value || '').trim(), B = (exprBEl.value || '').trim();
+  if (!A || !B) return '';
+  return '(' + A + ') - (' + B + ')';
+}
+// Mirror of the backend _infer_n rule: max integer leg (1..6) among the arguments of
+// ab/sb/s/chain, skipping Pow exponents and the chain type string. Used for the diff
+// block's "auto" n-point so it can resolve from A even when A-B collapses to 0.
+function inferNFromExpr(s) {
+  const noPow = (s || '').replace(/\*\*\s*\d+/g, ' ');
+  const calls = noPow.match(/(?:ab|sb|s|chain)\s*\([^)]*\)/g) || [];
+  const legs = [];
+  for (const c of calls)
+    for (const d of (c.match(/\d+/g) || [])) {
+      const v = Number(d); if (v >= 1 && v <= 6) legs.push(v);
+    }
+  return legs.length ? Math.max(...legs) : null;
+}
+// n-point for the comparison block: explicit 4/5/6, else auto = inferred from A alone.
+function diffNPoint() {
+  const v = document.getElementById('diffNpoint').value;
+  if (v) return parseInt(v, 10);
+  return inferNFromExpr(exprAEl.value);
+}
+function updateDiffPreview() { renderMath(diffPreviewEl, diffExpr()); }
+exprAEl.addEventListener('input', updateDiffPreview);
+exprBEl.addEventListener('input', updateDiffPreview);
+
+goDiffBtn.addEventListener('click', () => {
+  const e = diffExpr();
+  if (!e) { diffStatusEl.innerHTML = '<span class="err">Enter both A and B.</span>'; return; }
+  run({ expr: e, statusEl: diffStatusEl, resultsEl: diffResultsEl, btn: goDiffBtn,
+        nPoint: diffNPoint() });
+});
+
+// ---- numerical equivalence check (sub-second, no model) --------------------
+const goNumCheckBtn = document.getElementById('goNumCheck');
+
+async function runNumCheck() {
+  const A = (exprAEl.value || '').trim(), B = (exprBEl.value || '').trim();
+  if (!A || !B) {
+    diffStatusEl.innerHTML = '<span class="err">Enter both A and B.</span>'; return;
+  }
+  diffResultsEl.innerHTML = '';
+  goNumCheckBtn.disabled = true; goDiffBtn.disabled = true;
+  diffStatusEl.textContent = 'evaluating numerically…';
+
+  const body = { A: A, B: B };
+  // Use the comparison block's own n-point (explicit 4/5/6, else auto from A).
+  const np = document.getElementById('diffNpoint').value;
+  if (np) body.n_point = parseInt(np, 10);
+
+  let res, data;
+  try {
+    res = await fetch('/api/numerical_check', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    diffStatusEl.innerHTML = '<span class="err">network error: ' + esc(e) + '</span>';
+    goNumCheckBtn.disabled = false; goDiffBtn.disabled = false; return;
+  }
+  goNumCheckBtn.disabled = false; goDiffBtn.disabled = false;
+
+  if (res.status !== 200) {
+    const errorLabel = res.status >= 500 ? 'check failed' : 'request rejected';
+    diffStatusEl.innerHTML = '<span class="err">' + errorLabel + ' (' + res.status + '): ' +
+      esc(JSON.stringify(data.detail || data)) + '</span>';
+    return;
+  }
+  diffStatusEl.textContent = 'done — n_point=' + data.n_point;
+  renderNumCheckResult(data);
+}
+
+function renderNumCheckResult(data) {
+  const rel = data.rel_diff;
+  const hasScore = typeof rel === 'number' && Number.isFinite(rel);
+  // Accept the earlier boolean-only response while a server is being upgraded.
+  const status = hasScore ? (data.check_status ||
+    (data.equiv === true ? 'matched' : data.equiv === false ? 'mismatch' : 'inconclusive'))
+    : 'inconclusive';
+  const relStr = hasScore ? (rel === 0 ? '0' : rel.toExponential(2)) : '';
+  if (status === 'matched') {
+    diffResultsEl.innerHTML =
+      '<div class="card">' +
+        '<h3><span class="tag-ok">Numerical match</span></h3>' +
+        '<div class="kv">rel_diff = ' + relStr + ' (tolerance 2&times;10<sup>&minus;9</sup>) &middot; ' +
+          esc(data.method || '') + '</div>' +
+        '<div class="kv" style="margin-top:6px">' +
+          'The expressions agree within tolerance at two precomputed on-shell configurations. ' +
+          'This provides numerical evidence of equality.' +
+        '</div>' +
+      '</div>';
+  } else if (status === 'mismatch') {
+    diffResultsEl.innerHTML =
+      '<div class="card">' +
+        '<h3><span class="tag-no">Numerical mismatch</span></h3>' +
+        '<div class="kv">rel_diff = ' + relStr + ' (tolerance 2&times;10<sup>&minus;9</sup>)</div>' +
+        '<div class="kv" style="margin-top:6px">' +
+          'The evaluations differ beyond tolerance at the tested configurations.</div>' +
+      '</div>';
+  } else {
+    diffResultsEl.innerHTML =
+      '<div class="card">' +
+        '<h3>Inconclusive</h3>' +
+        '<div class="kv">No reliable numerical comparison was obtained.</div>' +
+      '</div>';
+  }
+}
+
+goNumCheckBtn.addEventListener('click', runNumCheck);
+
+// ---- notation reference modal ----
+const notationModal = document.getElementById('notationModal');
+const notationCloseBtn = document.getElementById('notationClose');
+let notationRendered = false;
+function openNotation() {
+  notationModal.classList.add('open');
+  if (!notationRendered) {   // typeset the inline $...$ math once, on first open
+    if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([notationModal]);
+    notationRendered = true;
+  }
+}
+function closeNotation() { notationModal.classList.remove('open'); }
+document.querySelectorAll('.notation-open').forEach(el => {
+  el.addEventListener('click', openNotation);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNotation(); }
+  });
+});
+notationCloseBtn.addEventListener('click', closeNotation);
+notationModal.addEventListener('click', e => { if (e.target === notationModal) closeNotation(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNotation(); });
+
+// ---- input ceilings come from the server (GET /api/limits), not from the hard-coded max= ----
+// The max= attributes above are the defaults of webservice/config.py; a deployment that
+// raises a WEBSVC_MAX_* variable is reflected here on page load. On any failure the
+// hard-coded bounds stay, and the server clamps anyway.
+async function applyServerLimits() {
+  let lim;
+  try {
+    const r = await fetch('/api/limits', { headers: { 'accept': 'application/json' } });
+    if (!r.ok) return;
+    lim = await r.json();
+  } catch (e) { return; }
+  const fields = { gbfs_max_apps: 'gbfs_max_apps', gbfs_max_seconds: 'gbfs_max_seconds',
+                   gbfs_max_terms: 'gbfs_max_terms', sft_patience: 'patience',
+                   gbfs_threads: 'gbfs_threads', gbfs_split_max_terms: 'gbfs_split_max_terms',
+                   gbfs_c_cancel_max_terms: 'gbfs_c_cancel_max_terms' };
+  for (const [key, id] of Object.entries(fields)) {
+    const v = lim[key];
+    if (!Number.isFinite(v)) continue;
+    const el = document.getElementById(id);
+    el.max = String(v);
+    // The shipped default may exceed this deployment's ceiling (300 s default vs a 120 s
+    // ceiling on the public instance): show the ceiling rather than a value the server
+    // would clamp with a notice on every submit.
+    if (parseFloat(el.value) > v) el.value = String(v);
+    const hint = document.querySelector('label[for="' + id + '"] .hint');
+    if (hint) {
+      const unit = key === 'gbfs_max_seconds' ? ' s' : '';
+      hint.dataset.tip = hint.dataset.tip.replace(/Server limit: .*$/, 'Server limit: ' + v + unit + '.');
+    }
+  }
+}
+
+
+// ---- local persistence: inputs + results survive reloads and re-logins -------------
+// Everything stays in THIS browser's localStorage (same origin, so an Access re-login does
+// not clear it; another browser or device starts empty). Two keys:
+//   ampzip.form.v1     the main panel's inputs as last submitted or typed
+//   ampzip.history.v1  the last HIST_MAX finished main-panel jobs (request + results), newest
+//                      first, capped at HIST_BYTES in total (oldest dropped first)
+// A reload restores the inputs and shows the newest saved results unless a job of this tab
+// is still running (the reconnect code above then owns the panel). Nothing here talks to
+// the server; the server's in-memory job store is unchanged.
+const FORM_KEY = 'ampzip.form.v1', HIST_KEY = 'ampzip.history.v1';
+const HIST_MAX = 20, HIST_BYTES = 4 * 1024 * 1024;
+const FORM_IDS = ['npoint', 'mode', 'patience', 'gbfs_max_apps', 'gbfs_max_seconds',
+                  'gbfs_max_terms', 'gbfs_ordering', 'gbfs_den_aware', 'gbfs_audit_steps',
+                  'gbfs_threads', 'gbfs_split_max_terms', 'gbfs_c_cancel_max_terms'];
+function lsGet(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; } }
+function lsSet(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; } }
+
+function readForm() {
+  const f = { expr: exprEl.value, algos: selectedAlgos(), fields: {} };
+  for (const id of FORM_IDS) {
+    const el = document.getElementById(id);
+    if (el) f.fields[id] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  return f;
+}
+function writeForm(f) {
+  if (!f || typeof f !== 'object') return;
+  if (typeof f.expr === 'string') { exprEl.value = f.expr; updatePreview(); }
+  if (Array.isArray(f.algos)) {
+    document.querySelectorAll('.algo').forEach(c => { c.checked = f.algos.includes(c.value); });
+  }
+  for (const [id, v] of Object.entries(f.fields || {})) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = String(v);
+  }
+}
+// A job recovered after a reload has no form snapshot; rebuild one from the request the
+// server echoes back (n_point there is the resolved value, so "auto" is not recoverable).
+function formFromRequest(req) {
+  if (!req) return null;
+  const f = { expr: req.expr || '', algos: req.algorithms || [], fields: {} };
+  const map = { n_point: 'npoint', simplify_mode: 'mode', sft_patience: 'patience' };
+  for (const id of FORM_IDS) {
+    const key = Object.keys(map).find(k => map[k] === id) || id;
+    if (req[key] !== undefined && req[key] !== null) f.fields[id] = req[key];
+  }
+  return f;
+}
+function saveForm() { lsSet(FORM_KEY, readForm()); }
+
+function loadHistory() { const h = lsGet(HIST_KEY); return Array.isArray(h) ? h : []; }
+function saveHistory(jobId, form, jr) {
+  if (!jr || !['done', 'cancelled'].includes(jr.status) || !(jr.results && jr.results.length)) return;
+  let h = loadHistory().filter(e => e && e.job_id !== jobId);
+  h.unshift({ ts: Date.now(), job_id: jobId, form: form, jr: jr });
+  h = h.slice(0, HIST_MAX);
+  while (h.length) {                       // drop the oldest until it fits the byte cap / quota
+    const text = JSON.stringify(h);
+    if (text.length <= HIST_BYTES) {
+      try { localStorage.setItem(HIST_KEY, text); break; } catch (e) { /* quota: shrink */ }
+    }
+    h.pop();
+  }
+  renderHistoryBar(h);
+}
+function historyLabel(e) {
+  const req = (e.jr && e.jr.request) || {};
+  const when = new Date(e.ts).toLocaleString();
+  const expr = (req.expr || '').replace(/\s+/g, '');
+  const algos = (req.algorithms || []).join(',');
+  return when + ' · n=' + (req.n_point || '?') + ' · ' + algos + ' · '
+       + (expr.length > 48 ? expr.slice(0, 48) + '…' : expr);
+}
+const historyBar = document.getElementById('historyBar');
+const historySel = document.getElementById('history');
+function renderHistoryBar(h) {
+  historySel.innerHTML = '';
+  historyBar.style.display = h.length ? '' : 'none';
+  h.forEach((e, i) => {
+    const o = document.createElement('option');
+    o.value = String(i); o.textContent = historyLabel(e);
+    historySel.appendChild(o);
+  });
+}
+function restoreEntry(e, note) {
+  writeForm(e.form || formFromRequest(e.jr && e.jr.request));
+  resultsEl.__epoch = (resultsEl.__epoch || 0) + 1;   // take the panel from any stale poll
+  resultsEl.innerHTML = '';
+  resultsEl.__slotCount = 0;
+  renderResults(e.jr, resultsEl);
+  statusEl.textContent = note + ': job ' + e.job_id + ', ' + new Date(e.ts).toLocaleString()
+                       + ' (saved in this browser)';
+}
+historySel.addEventListener('change', () => {
+  const e = loadHistory()[parseInt(historySel.value, 10)];
+  if (e) restoreEntry(e, 'restored');
+});
+document.getElementById('historyClear').addEventListener('click', () => {
+  try { localStorage.removeItem(HIST_KEY); } catch (e) {}
+  renderHistoryBar([]);
+  statusEl.textContent = 'saved runs forgotten';
+});
+
+// keep the inputs current as they are typed or toggled
+let _formTimer = null;
+exprEl.addEventListener('input', () => { clearTimeout(_formTimer); _formTimer = setTimeout(saveForm, 300); });
+document.querySelectorAll('.algo').forEach(c => c.addEventListener('change', saveForm));
+for (const id of FORM_IDS) { const el = document.getElementById(id); if (el) el.addEventListener('change', saveForm); }
+
+(function restoreOnLoad() {
+  writeForm(lsGet(FORM_KEY));
+  const h = loadHistory();
+  renderHistoryBar(h);
+  let active = null;
+  try { active = sessionStorage.getItem(ACTIVE_JOB_KEY); } catch (e) {}
+  if (h.length && !active) restoreEntry(h[0], 'last run');
+})();
+
+window.addEventListener('load', () => { updatePreview(); updateDiffPreview(); applyServerLimits(); });
+</script>
+</body>
+</html>

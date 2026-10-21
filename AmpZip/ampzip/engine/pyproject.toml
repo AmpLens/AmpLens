@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "amplens-engine"
+version = "1.0.0"
+description = "Move-execution engine of AmpLens (used by AmpZip): spinor-helicity identities, canonical rational functions, finite-field evaluation"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [
+  { name = "Yifan Fei" },
+  { name = "Zhen Liu" },
+]
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/AmpLens/AmpLens"
+
+[tool.maturin]
+# Pure-Rust extension; import name = the [lib] name in Cargo.toml: `ampzip_engine`.
+# extension-module is enabled for the wheel only (kept off for `cargo test`); abi3 gives one
+# wheel per platform for CPython 3.12 and later.
+features = ["pyo3/extension-module", "pyo3/abi3-py312"]
+exclude = ["target/**"]

@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use AmpZip, please cite the accompanying paper and the software."
+title: "AmpZip"
+abstract: "Training-free simplification of massless spinor-helicity amplitudes by greedy best-first search."
+type: software
+version: 1.0.0
+license: MIT
+authors:
+  - family-names: Fei
+    given-names: Yifan
+  - family-names: Liu
+    given-names: Zhen
+repository-code: "https://github.com/AmpLens/AmpLens"
+keywords:
+  - scattering amplitudes
+  - spinor-helicity
+  - computer algebra
+  - best-first search
+preferred-citation:
+  type: article
+  title: "Fast, training-free simplification of spinor-helicity amplitudes"
+  authors:
+    - family-names: Fei
+      given-names: Yifan
+    - family-names: Liu
+      given-names: Zhen
+  year: 2026

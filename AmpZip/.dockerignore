@@ -1,0 +1,10 @@
+# Only the Python package, Rust crate and packaging files are included in the
+# image build context.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!CHANGELOG.md
+!ampzip/**
+ampzip/engine/target/
+ampzip/**/__pycache__/

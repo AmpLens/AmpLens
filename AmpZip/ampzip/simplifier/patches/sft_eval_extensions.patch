@@ -1,0 +1,126 @@
+diff --git a/src/eval_sft_4pt.py b/src/eval_sft_4pt.py
+--- a/src/eval_sft_4pt.py
++++ b/src/eval_sft_4pt.py
+@@ -363,0 +364,2 @@
++    patience: int = 0,
++    should_stop=None,
+@@ -379,0 +382 @@
++    min_expr = initial_expr
+@@ -387,0 +391,2 @@
++    min_terms = start_terms
++    patience_counter = 0
+@@ -410,0 +416,7 @@
++        # Cooperative cancel (web Stop button): break at this step boundary and
++        # return best-so-far min_expr/min_brackets, like the sample_timeout cut.
++        if should_stop is not None and should_stop():
++            if verbose:
++                print(f"    Step {step}: cancelled, breaking", flush=True)
++            break
++
+@@ -429,0 +442,8 @@
++        if (current_brackets, current_terms) < (min_brackets, min_terms):
++            min_terms = current_terms
++            min_expr = current_expr
++            patience_counter = 0
++        elif patience > 0:
++            patience_counter += 1
++            if patience_counter >= patience:
++                break
+@@ -553,0 +574 @@
++                    'expr_after': str(result),
+@@ -603,0 +625,3 @@
++    if (final_brackets, final_terms) < (min_brackets, min_terms):
++        min_terms = final_terms
++        min_expr = current_expr
+@@ -655,0 +680,3 @@
++        'min_terms': min_terms,
++        'min_expr': str(min_expr),
++        'patience_triggered': (patience > 0 and patience_counter >= patience),
+@@ -1280,0 +1308 @@
++            _t_case = time.perf_counter()
+@@ -1365,0 +1394 @@
++            result['wall'] = time.perf_counter() - _t_case
+diff --git a/src/eval_sft_5pt.py b/src/eval_sft_5pt.py
+--- a/src/eval_sft_5pt.py
++++ b/src/eval_sft_5pt.py
+@@ -366,0 +367,2 @@
++    patience: int = 0,
++    should_stop=None,
+@@ -382,0 +385 @@
++    min_expr = initial_expr
+@@ -390,0 +394,2 @@
++    min_terms = start_terms
++    patience_counter = 0
+@@ -413,0 +419,7 @@
++        # Cooperative cancel (web Stop button): break at this step boundary and
++        # return best-so-far min_expr/min_brackets, like the sample_timeout cut.
++        if should_stop is not None and should_stop():
++            if verbose:
++                print(f"    Step {step}: cancelled, breaking", flush=True)
++            break
++
+@@ -432,0 +445,8 @@
++        if (current_brackets, current_terms) < (min_brackets, min_terms):
++            min_terms = current_terms
++            min_expr = current_expr
++            patience_counter = 0
++        elif patience > 0:
++            patience_counter += 1
++            if patience_counter >= patience:
++                break
+@@ -555,0 +576 @@
++                    'expr_after': str(result),
+@@ -605,0 +627,3 @@
++    if (final_brackets, final_terms) < (min_brackets, min_terms):
++        min_terms = final_terms
++        min_expr = current_expr
+@@ -657,0 +682,3 @@
++        'min_terms': min_terms,
++        'min_expr': str(min_expr),
++        'patience_triggered': (patience > 0 and patience_counter >= patience),
+@@ -1482,0 +1510 @@
++            _t_case = time.perf_counter()
+@@ -1568,0 +1597 @@
++            result['wall'] = time.perf_counter() - _t_case
+diff --git a/src/eval_sft_6pt.py b/src/eval_sft_6pt.py
+--- a/src/eval_sft_6pt.py
++++ b/src/eval_sft_6pt.py
+@@ -366,0 +367,2 @@
++    patience: int = 0,
++    should_stop=None,
+@@ -382,0 +385 @@
++    min_expr = initial_expr
+@@ -390,0 +394,2 @@
++    min_terms = start_terms
++    patience_counter = 0
+@@ -413,0 +419,7 @@
++        # Cooperative cancel (web Stop button): break at this step boundary and
++        # return best-so-far min_expr/min_brackets, like the sample_timeout cut.
++        if should_stop is not None and should_stop():
++            if verbose:
++                print(f"    Step {step}: cancelled, breaking", flush=True)
++            break
++
+@@ -432,0 +445,8 @@
++        if (current_brackets, current_terms) < (min_brackets, min_terms):
++            min_terms = current_terms
++            min_expr = current_expr
++            patience_counter = 0
++        elif patience > 0:
++            patience_counter += 1
++            if patience_counter >= patience:
++                break
+@@ -555,0 +576 @@
++                    'expr_after': str(result),
+@@ -605,0 +627,3 @@
++    if (final_brackets, final_terms) < (min_brackets, min_terms):
++        min_terms = final_terms
++        min_expr = current_expr
+@@ -657,0 +682,3 @@
++        'min_terms': min_terms,
++        'min_expr': str(min_expr),
++        'patience_triggered': (patience > 0 and patience_counter >= patience),
+@@ -1289,0 +1317 @@
++            _t_case = time.perf_counter()
+@@ -1375,0 +1404 @@
++            result['wall'] = time.perf_counter() - _t_case
