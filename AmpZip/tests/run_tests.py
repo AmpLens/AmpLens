@@ -62,6 +62,7 @@ def main():
     import test_parse
     import test_atoms
     import test_verify_engine
+    import test_gbfs_checkpoint
     import test_gbfs_packing
     import test_gbfs_stop_reasons
     import test_gbfs_e_budget
@@ -82,6 +83,7 @@ def main():
         _run("parse", test_parse.main),
         _run("atoms", test_atoms.main),
         _run("verify_engine", test_verify_engine.main),
+        _run("gbfs_checkpoint", test_gbfs_checkpoint.main),
         _run("gbfs_packing", test_gbfs_packing.main),
         _run("gbfs_stop_reasons", test_gbfs_stop_reasons.main),
         _run("gbfs_e_budget", test_gbfs_e_budget.main),
