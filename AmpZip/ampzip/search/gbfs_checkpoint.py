@@ -47,7 +47,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import resource
 import struct
 import time
 
@@ -96,8 +95,15 @@ def _runs(xs):
     return ",".join(out)
 
 
-def peak_rss_gb():
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1 << 20)
+def peak_rss_gb() -> float | None:
+    """Process-lifetime peak RSS in GiB, or None when unavailable."""
+    try:
+        import resource
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except (ImportError, OSError):
+        return None
+    # macOS reports bytes; Linux reports KiB.
+    return peak / (1 << (30 if platform.system() == "Darwin" else 20))
 
 
 def save(path, *, n, root_str, parent, move_into, frontier,
