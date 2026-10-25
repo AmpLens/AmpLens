@@ -15,12 +15,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import random
-import select
 import subprocess
 import sys
 import threading
-import time
 from typing import NamedTuple, Optional, Tuple
 
 import sympy as sp
@@ -153,6 +152,17 @@ class PostResult(NamedTuple):
     error: Optional[str]
 
 
+def _pump_lines(stream, replies: "queue.Queue[Optional[bytes]]") -> None:
+    """Forward the helper's reply lines to `replies`, then None at EOF. Runs in a daemon
+    thread per helper process: `select()` cannot wait on a pipe on Windows (WinError 10038)."""
+    try:
+        for line in iter(stream.readline, b""):
+            replies.put(line.rstrip(b"\r\n"))
+    except (OSError, ValueError):
+        pass
+    replies.put(None)
+
+
 class _PostWorker:
     """One persistent helper process (`_post_worker`) per parent process, lock-serialised.
 
@@ -162,12 +172,18 @@ class _PostWorker:
     def __init__(self):
         self._lock = threading.Lock()
         self._proc = None
+        self._replies = None
 
     def _spawn(self):
         self._proc = subprocess.Popen(
             [sys.executable, "-m", "ampzip.simplifier.algorithms._post_worker"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=dict(os.environ, PYTHONWARNINGS="ignore"))
+        # A fresh queue per process: a late reply from a killed helper can never be read
+        # as the answer to the next request.
+        self._replies = queue.Queue()
+        threading.Thread(target=_pump_lines, args=(self._proc.stdout, self._replies),
+                         daemon=True).start()
 
     def _kill(self):
         if self._proc is not None:
@@ -180,23 +196,12 @@ class _PostWorker:
 
     def _readline(self, timeout_s: float) -> Optional[bytes]:
         """Read one reply line from the child, or return None on timeout or EOF."""
-        fd = self._proc.stdout.fileno()
-        buf = bytearray()
-        deadline = time.monotonic() + timeout_s
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            ready, _, _ = select.select([fd], [], [], remaining)
-            if not ready:
-                return None
-            chunk = os.read(fd, 1 << 16)
-            if not chunk:
-                return None            # child died
-            buf += chunk
-            nl = buf.find(b"\n")
-            if nl >= 0:
-                return bytes(buf[:nl])
+        if timeout_s <= 0:
+            return None
+        try:
+            return self._replies.get(timeout=timeout_s)   # None: the child died
+        except queue.Empty:
+            return None
 
     def request(self, payload: dict, timeout_s: float) -> dict:
         with self._lock:
