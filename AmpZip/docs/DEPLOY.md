@@ -78,6 +78,8 @@ Repeated failed login attempts are limited by `WEBSVC_BASIC_MAX_FAILS` and `WEBS
 
 Cloudflare Tunnel connects your server to Cloudflare without requiring a public IP address. Cloudflare Access authenticates users, and AmpZip verifies the Access token on protected API requests.
 
+`ampzip[web]` installs `cryptography` for token verification on all platforms except Windows ARM and Intel macOS. On these platforms, run `pip install cryptography` to build it from source.
+
 1. Install `cloudflared` and log in with `cloudflared tunnel login`.
 2. Run `cloudflared tunnel create ampzip`. Record the tunnel ID and the path to its credentials file.
 3. Copy [cloudflared-config.example.yml](../ampzip/webservice/deploy/cloudflared-config.example.yml) to `~/.cloudflared/config.yml`. Set the tunnel ID, credentials-file path and hostname. The example routes `simp.YOURDOMAIN.com` to `http://127.0.0.1:8000`.
