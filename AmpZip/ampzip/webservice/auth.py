@@ -130,6 +130,10 @@ def _get_jwks_client() -> "PyJWKClient":
 def _verify_cloudflare(headers) -> str:
     if not _JWT_AVAILABLE:
         raise AuthError(500, "PyJWT not installed; run `pip install 'pyjwt[crypto]'`")
+    if not jwt.algorithms.has_crypto:
+        raise AuthError(500, "Cloudflare Access on Windows ARM and Intel macOS requires manual "
+                             "installation of cryptography. Run `pip install cryptography`, or "
+                             "set WEBSVC_AUTH_MODE=basic.")
     if not CONFIG.cf_team_domain or not CONFIG.cf_access_aud:
         raise AuthError(500, "Cloudflare Access not configured "
                              "(set CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD)")

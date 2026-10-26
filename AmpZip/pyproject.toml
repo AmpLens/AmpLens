@@ -40,7 +40,13 @@ web = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
   "pydantic>=2",
-  "pyjwt[crypto]>=2.8",
+  "pyjwt>=2.8",
+  # PyJWT's RS256 support, used only by Cloudflare Access authentication.
+  # Excluded on Windows ARM and Intel macOS because cryptography has not provided
+  # binary wheels for them since 46.0.4 and 49.0.0, and source builds require
+  # Rust and OpenSSL.
+  # Other authentication modes do not require it.
+  "cryptography>=3.4; (sys_platform != 'win32' or platform_machine != 'ARM64') and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
 ]
 # The learned backends run two upstream packages that `ampzip fetch-backends` clones onto the
 # user's machine; these extras only install what those packages import.
