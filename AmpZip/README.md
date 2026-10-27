@@ -107,7 +107,7 @@ If you downloaded the backends to a different directory, set `AMPZIP_BACKENDS` t
 - [Changelog](CHANGELOG.md)
 - [Citation information](CITATION.cff)
 
-Inputs and commands for the paper's experiments will be provided in [Paper resources](https://github.com/AmpLens/AmpLens/tree/main/paper).
+Inputs and commands for the paper's experiments are available in [Paper resources](https://github.com/AmpLens/AmpLens/tree/main/paper).
 
 ## License
 
