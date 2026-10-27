@@ -26,6 +26,7 @@ Binary wheels are provided for CPython 3.12 and later on Linux (x86_64, aarch64)
 AmpLens/
 ├── AmpZip/        the AmpZip package, its engine, tests and documentation
 ├── amplens/       the meta package
+├── paper/         input datasets and evaluation commands for the paper
 └── .github/       release workflow (tags ampzip-v* and amplens-v*)
 ```
 

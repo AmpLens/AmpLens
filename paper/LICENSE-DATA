@@ -1,0 +1,10 @@
+Copyright (c) 2026 Yifan Fei and Zhen Liu
+
+The following data files are licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0). To view a copy of this license, visit https://creativecommons.org/licenses/by/4.0/
+
+  inputs/size_depth_suite.jsonl.gz
+  inputs/below_target_cases.txt
+
+The expressions in inputs/ym5pt/ were provided by the authors of arXiv:2603.11164 and are included here to reproduce the results of the paper. They are not covered by the license above.
+
+The scripts under scripts/ are covered by the MIT license in the LICENSE file at the root of this repository.
