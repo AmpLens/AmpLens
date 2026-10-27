@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -146,7 +147,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--log-dir", type=str, default=None,
                    help="Directory for cli.jsonl. Defaults to AMPZIP_LOG_DIR or the user log directory.")
     p.add_argument("--json", action="store_true",
-                   help="Also print the full result record as JSON on stdout.")
+                   help="Print the full result record as JSON on stdout, and all other output on stderr.")
     return p
 
 
@@ -234,12 +235,26 @@ def main(argv: List[str] | None = None) -> int:
         return fetch_main(argv[1:])
     t_main = time.time()
     args = _build_argparser().parse_args(argv)
+    if not args.json:
+        return _simplify(args, t_main)[0]
+    # With --json, stdout carries only the JSON record so that it can be piped to a parser; the
+    # validation, routing and results text goes to stderr.
+    with contextlib.redirect_stdout(sys.stderr):
+        code, record = _simplify(args, t_main)
+    if code == 0:
+        print(json.dumps(record.to_dict(), default=str, indent=2))
+    return code
+
+
+def _simplify(args, t_main: float):
+    """Validate, route and run the backends. Returns the exit status and the invocation record,
+    or None in its place when an argument is rejected before the record exists."""
     if args.gbfs_max_terms < 1:
         print("[error] --gbfs-max-terms must be at least 1")
-        return 2
+        return 2, None
     if args.gbfs_den_aware and args.gbfs_ordering == "raw":
         print("[error] --gbfs-den-aware cannot be combined with --gbfs-ordering raw")
-        return 2
+        return 2, None
     n_override = None if args.n_point == "auto" else int(args.n_point)
     raw_input = _read_expr_arg(args)
     inv_id = new_invocation_id()
@@ -265,7 +280,7 @@ def main(argv: List[str] | None = None) -> int:
         record.total_duration_s = time.time() - t_main
         log_path = append_invocation(record, log_dir=args.log_dir)
         print(f"\n[log] {log_path}  ({record.total_duration_s:.2f}s)", file=sys.stderr)
-        return 2
+        return 2, record
 
     # 1. Validate. enforce_size_limits=False so the SFT/CDS size budget never rejects the
     #    whole run — a too-big expression is still fair game for the model-free gbfs family.
@@ -280,7 +295,7 @@ def main(argv: List[str] | None = None) -> int:
         record.total_duration_s = time.time() - t_main
         log_path = append_invocation(record, log_dir=args.log_dir)
         print(f"\n[log] {log_path}  ({record.total_duration_s:.2f}s)", file=sys.stderr)
-        return 2
+        return 2, record
 
     # 2. Parse expr (and optional target) into sympy
     ab_cls, sb_cls = _get_bracket_classes()
@@ -325,7 +340,7 @@ def main(argv: List[str] | None = None) -> int:
             record.total_duration_s = time.time() - t_main
             log_path = append_invocation(record, log_dir=args.log_dir)
             print(f"[log] {log_path}", file=sys.stderr)
-            return 2
+            return 2, record
         if dropped:
             print(f"[route] The expression exceeds the SFT/CDS checkpoint input limits. "
                   f"Running {gbfs_kept}. Skipping {dropped}.")
@@ -348,7 +363,7 @@ def main(argv: List[str] | None = None) -> int:
             record.total_duration_s = time.time() - t_main
             log_path = append_invocation(record, log_dir=args.log_dir)
             print(f"[log] {log_path}", file=sys.stderr)
-            return 2
+            return 2, record
         if dropped:
             print(f"[route] The search engine cannot represent this input. "
                   f"Running {kept}. Skipping {dropped}.")
@@ -361,7 +376,7 @@ def main(argv: List[str] | None = None) -> int:
         record.error = msg
         log_path = append_invocation(record, log_dir=args.log_dir)
         print(f"[log] {log_path}", file=sys.stderr)
-        return 3
+        return 3, record
 
     results = run_all(
         algorithm_names=algo_names,
@@ -407,11 +422,7 @@ def main(argv: List[str] | None = None) -> int:
           f"(total={record.total_duration_s:.2f}s, "
           f"validate={record.validation_duration_s:.3f}s)")
 
-    if args.json:
-        print()
-        print(json.dumps(record.to_dict(), default=str, indent=2))
-
-    return 0
+    return 0, record
 
 
 if __name__ == "__main__":
