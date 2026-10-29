@@ -9,6 +9,29 @@ AmpLens is a collection of tools for scattering amplitudes in spinor-helicity no
 | AmpZip | [`AmpZip/`](AmpZip) | `ampzip` (engine: `amplens-engine`) | Simplifies four-, five- and six-point spinor-helicity expressions by greedy best-first search. |
 | AmpLens | [`amplens/`](amplens) | `amplens` | Installs the components, lists their versions, and provides access to the AmpZip command-line interface. |
 
+## AmpZip in action
+
+Compress a long spinor-helicity expression and inspect the identities behind the result.
+
+![AmpZip reduces a scrambled six-point expression from 14 numerator terms to one in six recorded steps, opening each exact rewrite rule.](docs/demos/six-step.gif)
+
+This six-point example goes from **14 numerator terms to one** through six recorded rewrites. Open **details** to see the identity used at each step. No target expression is supplied to the search.
+
+[Copy the input](docs/demos/six-step-input.txt) · [Static image](docs/demos/six-step.png) · [Reproduce the demo](docs/demos/README.md) · [Run AmpZip locally](AmpZip/README.md#install)
+
+<details>
+<summary>A shorter example: 12 numerator terms to a single bracket</summary>
+
+![AmpZip simplifies a scrambled six-point expression to the angle bracket 34 in two recorded steps.](docs/demos/two-step.gif)
+
+Two identity substitutions, together with algebraic collection and cancellation, reduce this expression to `ab(3,4)`.
+
+[Copy the input](docs/demos/two-step-input.txt) · [Static image](docs/demos/two-step.png)
+
+</details>
+
+Both animations show synthetic scrambled examples in the local interface, with pauses added for reading. Each recorded rewrite passes finite-field consistency checks; the animations are demonstrations, not timing benchmarks.
+
 ## Install
 
 ```bash
