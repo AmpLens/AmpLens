@@ -1,26 +1,48 @@
 //! Parse sympy `str()` output over the brackets `ab(i,j)` / `sb(i,j)` into an AST.
-//! Grammar (recursive descent): expr = ±term {(+|-) term}; term = factor {(*|/)
-//! factor}; factor = atom [** [±]int];
-//! atom = int | ab/sb(i,j) | opaque_den(expr) | (expr) | -atom.
+//! The grammar, parsed by recursive descent, is expr = ±term {(+|-) term},
+//! term = factor {(*|/) factor}, factor = atom [** [±]int] and
+//! atom = number | ab/sb(i,j) | opaque_den(expr) | sqrt(int) | I | name | (expr) | -atom.
+//!
+//! Besides integers, the evaluator in `eval.rs` accepts integers of any size, decimals read
+//! as exact rationals, `I`, `sqrt(n)` and named parameters listed by the caller. `sqrt(n)`
+//! is rewritten as `k * sqrt(q1) * sqrt(q2) ...` over the primes of the square-free part
+//! of n, so that equal radicals written differently evaluate alike. The rewrite engine in
+//! `ident.rs` takes integer coefficients only.
 
 #[derive(Debug, Clone)]
 pub(crate) enum Ast {
     Int(i64),
+    /// A non-negative integer beyond i64, kept as decimal digits.
+    Big(String),
     Bracket { square: bool, i: usize, j: usize },
     Neg(Box<Ast>),
     Add(Vec<Ast>),
     Mul(Vec<Ast>),
     Pow(Box<Ast>, i64),
-    /// `opaque_den(S)` = 1/S with the sum `S` kept symbolic (an opaque denominator factor).
+    /// `opaque_den(S)` = 1/S with the sum `S` kept symbolic, an opaque denominator factor.
     OpaqueDen(Box<Ast>),
+    /// The imaginary unit.
+    ImagUnit,
+    /// The square root of a prime.
+    Sqrt(u64),
+    /// A named parameter whose value the caller supplies at evaluation.
+    Param(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum Tok {
     Int(i64),
+    /// Integer digits beyond i64.
+    Big(String),
+    /// A decimal literal as its digits and the power of ten to divide by, so `1.5e-3` is
+    /// ("15", 4).
+    Dec(String, i64),
     Ab,
     Sb,
     OpaqueDen,
+    Sqrt,
+    Imag,
+    Name(String),
     LP,
     RP,
     Comma,
@@ -31,7 +53,7 @@ enum Tok {
     DStar,
 }
 
-fn tokenize(s: &str) -> Result<Vec<Tok>, String> {
+fn tokenize(s: &str, params: &[String]) -> Result<Vec<Tok>, String> {
     let b = s.as_bytes();
     let n = b.len();
     let mut i = 0;
@@ -40,21 +62,62 @@ fn tokenize(s: &str) -> Result<Vec<Tok>, String> {
         let c = b[i] as char;
         if c.is_whitespace() {
             i += 1;
-        } else if c.is_ascii_digit() {
+        } else if c.is_ascii_digit() || (c == '.' && i + 1 < n && (b[i + 1] as char).is_ascii_digit()) {
             let start = i;
             while i < n && (b[i] as char).is_ascii_digit() {
                 i += 1;
             }
-            out.push(Tok::Int(s[start..i].parse().map_err(|_| "bad int".to_string())?));
-        } else if c.is_ascii_alphabetic() {
+            let mut frac = 0i64;
+            let mut digits = s[start..i].to_string();
+            if i < n && b[i] as char == '.' {
+                i += 1;
+                let fstart = i;
+                while i < n && (b[i] as char).is_ascii_digit() {
+                    i += 1;
+                }
+                frac = (i - fstart) as i64;
+                digits.push_str(&s[fstart..i]);
+            }
+            let mut exp = 0i64;
+            // An `e[+-]digits` suffix is an exponent, as in `1.0e-3`.
+            if i < n && (b[i] as char == 'e' || b[i] as char == 'E') {
+                let mut j = i + 1;
+                let mut sign = 1i64;
+                if j < n && (b[j] as char == '+' || b[j] as char == '-') {
+                    sign = if b[j] as char == '-' { -1 } else { 1 };
+                    j += 1;
+                }
+                if j < n && (b[j] as char).is_ascii_digit() {
+                    let estart = j;
+                    while j < n && (b[j] as char).is_ascii_digit() {
+                        j += 1;
+                    }
+                    exp = sign * s[estart..j].parse::<i64>().map_err(|_| "bad exponent".to_string())?;
+                    i = j;
+                }
+            }
+            if frac == 0 && exp == 0 {
+                let digits = digits.trim_start_matches('0');
+                let digits = if digits.is_empty() { "0" } else { digits };
+                match digits.parse::<i64>() {
+                    Ok(v) => out.push(Tok::Int(v)),
+                    Err(_) => out.push(Tok::Big(digits.to_string())),
+                }
+            } else {
+                out.push(Tok::Dec(digits, frac - exp));
+            }
+        } else if c.is_ascii_alphabetic() || c == '_' {
             let start = i;
-            while i < n && ((b[i] as char).is_ascii_alphabetic() || b[i] as char == '_') {
+            while i < n && ((b[i] as char).is_ascii_alphanumeric() || b[i] as char == '_') {
                 i += 1;
             }
             match &s[start..i] {
                 "ab" => out.push(Tok::Ab),
                 "sb" => out.push(Tok::Sb),
                 "opaque_den" => out.push(Tok::OpaqueDen),
+                "sqrt" => out.push(Tok::Sqrt),
+                "I" => out.push(Tok::Imag),
+                other if params.iter().any(|q| q == other) => out.push(Tok::Name(other.to_string())),
                 other => return Err(format!("unknown identifier '{}'", other)),
             }
         } else {
@@ -79,6 +142,56 @@ fn tokenize(s: &str) -> Result<Vec<Tok>, String> {
         }
     }
     Ok(out)
+}
+
+/// Returns `(k, [q...])` with `n = k^2 * q1 * q2 * ...` and distinct primes `q`.
+fn square_free_split(mut n: u64) -> (u64, Vec<u64>) {
+    let mut k = 1u64;
+    let mut primes = Vec::new();
+    let mut q = 2u64;
+    while q * q <= n {
+        let mut e = 0u32;
+        while n % q == 0 {
+            n /= q;
+            e += 1;
+        }
+        if e > 0 {
+            k *= q.pow(e / 2);
+            if e % 2 == 1 {
+                primes.push(q);
+            }
+        }
+        q += if q == 2 { 1 } else { 2 };
+    }
+    if n > 1 {
+        primes.push(n);
+    }
+    (k, primes)
+}
+
+/// `sqrt(n)` as `k * sqrt(q1) * ...` over the primes of the square-free part of `n`.
+fn sqrt_ast(n: u64) -> Ast {
+    if n == 0 || n == 1 {
+        return Ast::Int(n as i64);
+    }
+    let (k, primes) = square_free_split(n);
+    let mut factors = Vec::new();
+    if k != 1 {
+        factors.push(Ast::Int(k as i64));
+    }
+    factors.extend(primes.into_iter().map(Ast::Sqrt));
+    if factors.len() == 1 {
+        factors.pop().unwrap()
+    } else {
+        Ast::Mul(factors)
+    }
+}
+
+fn big_or_int(digits: &str) -> Ast {
+    match digits.parse::<i64>() {
+        Ok(v) => Ast::Int(v),
+        Err(_) => Ast::Big(digits.to_string()),
+    }
 }
 
 struct Parser {
@@ -205,6 +318,45 @@ impl Parser {
                 self.next();
                 Ok(Ast::Int(v))
             }
+            Some(Tok::Big(d)) => {
+                self.next();
+                Ok(Ast::Big(d))
+            }
+            Some(Tok::Dec(digits, scale)) => {
+                self.next();
+                // digits / 10^scale. A negative scale multiplies instead.
+                let d = digits.trim_start_matches('0');
+                let mant = big_or_int(if d.is_empty() { "0" } else { d });
+                if scale == 0 {
+                    return Ok(mant);
+                }
+                let mut ten = String::from("1");
+                ten.push_str(&"0".repeat(scale.unsigned_abs() as usize));
+                let power = big_or_int(&ten);
+                Ok(if scale > 0 {
+                    Ast::Mul(vec![mant, Ast::Pow(Box::new(power), -1)])
+                } else {
+                    Ast::Mul(vec![mant, power])
+                })
+            }
+            Some(Tok::Imag) => {
+                self.next();
+                Ok(Ast::ImagUnit)
+            }
+            Some(Tok::Name(name)) => {
+                self.next();
+                Ok(Ast::Param(name))
+            }
+            Some(Tok::Sqrt) => {
+                self.next();
+                self.expect(&Tok::LP)?;
+                let v = match self.next() {
+                    Some(Tok::Int(v)) if v >= 0 => v as u64,
+                    other => return Err(format!("sqrt() takes a non-negative integer, got {:?}", other)),
+                };
+                self.expect(&Tok::RP)?;
+                Ok(sqrt_ast(v))
+            }
             Some(Tok::Ab) | Some(Tok::Sb) => {
                 let square = matches!(self.next(), Some(Tok::Sb));
                 self.expect(&Tok::LP)?;
@@ -240,7 +392,12 @@ impl Parser {
 }
 
 pub(crate) fn parse(s: &str) -> Result<Ast, String> {
-    let toks = tokenize(s)?;
+    parse_with_params(s, &[])
+}
+
+/// Parses `s`, admitting the listed identifiers as named parameters.
+pub(crate) fn parse_with_params(s: &str, params: &[String]) -> Result<Ast, String> {
+    let toks = tokenize(s, params)?;
     let mut p = Parser { toks, pos: 0 };
     let ast = p.parse_expr()?;
     if p.pos != p.toks.len() {

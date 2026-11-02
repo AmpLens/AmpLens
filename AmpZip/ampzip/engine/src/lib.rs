@@ -1,11 +1,9 @@
-//! ampzip_engine — the move-execution engine's PyO3 surface (thin).
+//! ampzip_engine, the thin PyO3 surface of the move-execution engine.
 //!
-//! Architecture:
-//!   parse  — sympy `str()`  ->  Ast            (`parse.rs`)
-//!   poly   — `RatFn`: num / (den * product(den_opaque)),
-//!            arithmetic, cancellation, string output   (`poly.rs`)
-//!   eval   — exact mod-p on-shell evaluation of an Ast   (`eval.rs`)
-//!   ident  — Ast->RatFn, the 3 identities, bracket substitution  (`ident.rs`)
+//! `parse.rs` turns a sympy `str()` into an `Ast`. `poly.rs` holds `RatFn`, the form
+//! num / (den * product(den_opaque)), with its arithmetic, cancellation and string output.
+//! `eval.rs` evaluates an `Ast` exactly over F_p at an on-shell point. `ident.rs` turns an
+//! `Ast` into a `RatFn`, builds the identity menu and substitutes a bracket.
 mod eval;
 mod ident;
 mod parse;
@@ -18,7 +16,7 @@ use blake2::digest::consts::U16;
 use blake2::{Blake2b, Digest};
 
 /// Raise if a coefficient overflow was flagged during the preceding algebra. Callers
-/// must `poly::overflow_check_reset()` *before* the computation to clear stale state.
+/// call `poly::overflow_check_reset()` before the computation to clear stale state.
 fn check_overflow() -> PyResult<()> {
     if poly::overflow_check_reset() {
         return Err(PyValueError::new_err(
@@ -29,8 +27,8 @@ fn check_overflow() -> PyResult<()> {
 }
 
 /// Raise if a whole-expression or single-term rewrite exceeded its numerator term
-/// limit. The search handles this ValueError by skipping the move. Callers must
-/// call `poly::term_limit_hit_reset()` before each application to clear stale state.
+/// limit. The search skips the move on this ValueError. Callers call
+/// `poly::term_limit_hit_reset()` before each application to clear the flag.
 fn check_term_limit() -> PyResult<()> {
     if poly::term_limit_hit_reset() {
         return Err(PyValueError::new_err(
@@ -40,23 +38,22 @@ fn check_term_limit() -> PyResult<()> {
     Ok(())
 }
 
-/// Why a move was rejected, as returned by `apply_core` / `Expr::apply_slice_coded`.
-/// 0 = applied, 1 = degenerate identity or illegal term slot, 2 = term cap breached,
-/// 3 = coefficient overflow. The search counts these per cause (`*_skips` in its result).
+/// Why a move was rejected, as returned by `apply_core` and `Expr::apply_slice_coded`.
+/// 0 means applied, 1 a degenerate identity or illegal term slot, 2 a breached term cap and
+/// 3 a coefficient overflow. The search counts these per cause in the `*_skips` of its result.
 const REJECT_DEGENERATE: u8 = 1;
 const REJECT_TERM_LIMIT: u8 = 2;
 const REJECT_OVERFLOW: u8 = 3;
 
 /// Shared core of `Expr::apply` with no Python types in the signature, so it can run off the
-/// GIL inside a worker thread (see `Expr::apply_batch`). Returns `Err(code)` in exactly the
-/// cases where `Expr::apply` raises a `ValueError` — degenerate identity, illegal term slot,
-/// `max_terms` breach, coefficient overflow — which is the case the search already skips with
-/// `except ValueError: continue`; the code says which.
+/// GIL inside a worker thread, as `Expr::apply_batch` does. Returns `Err(code)` in exactly the
+/// cases where `Expr::apply` raises a `ValueError`, which the search skips with
+/// `except ValueError: continue`. The code says which case it was.
 ///
-/// Thread-safety of the two `thread_local!` flags in `poly.rs` (`OVERFLOW`, `TERM_LIMIT_HIT`):
-/// reset -> compute -> check all happen inside THIS function, hence on ONE thread, so a worker
-/// only ever observes its own flags. No locking is needed and no flag can leak between moves —
-/// that is what makes a threaded batch bit-identical to the sequential loop.
+/// The two `thread_local!` flags in `poly.rs`, `OVERFLOW` and `TERM_LIMIT_HIT`, are reset,
+/// set and checked inside this function, hence on one thread, so a worker only ever observes
+/// its own flags. No locking is needed, no flag can leak between moves, and a threaded batch
+/// is bit-identical to the sequential loop.
 #[allow(clippy::too_many_arguments)] // mirrors `Expr::apply`, whose args are the RL action encoding
 fn apply_core(
     rf: &poly::RatFn,
@@ -78,7 +75,7 @@ fn apply_core(
     } else {
         ident::substitute_term(rf, target, &ret, term_slot - 1, max_terms).map_err(|_| REJECT_DEGENERATE)?
     };
-    // Bail on a substitution blow-up BEFORE the costly cancel, exactly as `apply` does.
+    // Bail on a substitution blow-up before the costly cancel, as `apply` does.
     if poly::term_limit_hit_reset() {
         return Err(REJECT_TERM_LIMIT);
     }
@@ -89,9 +86,9 @@ fn apply_core(
     Ok(out)
 }
 
-/// `itertools.combinations(pool, r)` — same yield ORDER as CPython (lexicographic by index),
-/// which `legal_moves` depends on to reproduce the shipped action ordering. `r == 0` yields one
-/// empty selection; `r > pool.len()` yields none.
+/// `itertools.combinations(pool, r)` in CPython's yield order, lexicographic by index, which
+/// `legal_moves` depends on to reproduce the move order. `r == 0` yields one empty selection
+/// and `r > pool.len()` yields none.
 fn combinations(pool: &[u16], r: usize) -> Vec<Vec<u16>> {
     let n = pool.len();
     let mut out: Vec<Vec<u16>> = Vec::new();
@@ -101,7 +98,7 @@ fn combinations(pool: &[u16], r: usize) -> Vec<Vec<u16>> {
     let mut idx: Vec<usize> = (0..r).collect();
     loop {
         out.push(idx.iter().map(|&k| pool[k]).collect());
-        // rightmost index that can still advance
+        // The rightmost index that can still advance.
         let mut i = r;
         let mut found = false;
         while i > 0 {
@@ -121,12 +118,11 @@ fn combinations(pool: &[u16], r: usize) -> Vec<Vec<u16>> {
     }
 }
 
-/// The `(identity, params)` menu for bracket `bk(i,j)`: **C(n-2,2) Schouten + 2(n-1) momentum +
-/// 2^(n-2) momentum_sq** = 11/19/32 entries at n=4/5/6. Port of
-/// `ampzip.search.actions.identity_menu`, including its order
-/// (Schouten, momentum, momentum_sq).
-///
-/// Independent of the bracket TYPE — the Python version also takes `square` and ignores it.
+/// The `(identity, params)` menu for bracket `bk(i,j)`, with C(n-2,2) Schouten, 2(n-1)
+/// momentum and 2^(n-2) momentum_sq entries, 11, 19 and 32 at n = 4, 5 and 6. A port of
+/// `ampzip.search.actions.identity_menu` in the same order, Schouten, momentum, momentum_sq.
+/// The menu does not depend on the bracket type. The Python version takes `square` too and
+/// ignores it.
 fn identity_menu(i: u16, j: u16, n: u16) -> Vec<(&'static str, Vec<u16>)> {
     let other: Vec<u16> = (1..=n).filter(|&m| m != i && m != j).collect();
     let mut menu: Vec<(&'static str, Vec<u16>)> = Vec::new();
@@ -153,18 +149,18 @@ type BracketPow = (bool, u16, u16, u32);
 type TermPow = (i128, Vec<BracketPow>);
 /// A legal move as Python sees it: `(square, i, j, term_slot, identity, params)`.
 type Move = (bool, u16, u16, usize, String, Vec<u16>);
-/// The same move in Rust, with the identity as a static tag (no per-move allocation).
+/// The same move in Rust, with the identity as a static tag, so a move allocates nothing.
 type MoveRs = (bool, u16, u16, usize, &'static str, Vec<u16>);
-/// One batch-apply result: `(child, key, factored_bracket_count, bracket_count,
-/// num_terms)` — everything the search reads off a child, computed off the GIL.
-/// What a worker computes for one child: the handle, its dedup key, and the three counts.
+/// One batch-apply result, `(child, key, factored_bracket_count, bracket_count,
+/// num_terms)`, everything the search reads off a child, computed off the GIL.
+/// What a worker computes for one child, the handle, its dedup key and the three counts.
 type ChildRec = (Expr, [u8; 16], u64, u64, usize);
-/// The same record as handed to Python (the key as `bytes`).
+/// The same record as handed to Python, with the key as `bytes`.
 type ChildPy = (Expr, Py<PyBytes>, u64, u64, usize);
 
-/// Dedup key of a canonical form: blake2b with a 16-byte digest over the canonical string's
-/// UTF-8, exactly `hashlib.blake2b(s.encode(), digest_size=16).digest()` in Python, so keys
-/// computed here and keys the search computed in Python before this existed are the same bytes.
+/// Dedup key of a canonical form, a 16-byte blake2b digest of the canonical string's UTF-8,
+/// the same bytes as `hashlib.blake2b(s.encode(), digest_size=16).digest()` in Python, so
+/// keys computed here match the keys the search computed in Python before this existed.
 fn ratfn_key(rf: &poly::RatFn) -> [u8; 16] {
     let mut h = Blake2b::<U16>::new();
     h.update(poly::ratfn_to_string(rf).as_bytes());
@@ -176,7 +172,7 @@ fn child_py(py: Python<'_>, rec: ChildRec) -> ChildPy {
     (e, PyBytes::new(py, &k).unbind(), a, b, c)
 }
 
-/// Enumerate every legal move of `rf` (see `Expr::legal_moves` for the contract).
+/// Enumerate every legal move of `rf`. `Expr::legal_moves` states the contract.
 fn enumerate_moves(rf: &poly::RatFn, n: u16) -> Vec<MoveRs> {
     let mut present = std::collections::BTreeSet::new();
     for m in rf.num.keys() {
@@ -211,14 +207,13 @@ fn enumerate_moves(rf: &poly::RatFn, n: u16) -> Vec<MoveRs> {
 
 /// An opaque, resident list of a node's legal moves.
 ///
-/// Why this exists rather than just handing Python the list: materialising the moves as Python
-/// tuples is what dominates enumeration. Measured on a 3000-character 6pt node (10 528 moves),
-/// building them in Rust and converting takes **24.8 ms** against **16.5 ms** for the pure-Python
-/// enumeration in `ampzip.search.actions` — the Python version wins because it reuses one
-/// `params` list object across every term slot, while the conversion allocates a fresh tuple,
-/// `str` and `list` per move. Keeping the list opaque skips that entirely: the search slices it
-/// by index (`Expr::apply_slice`) and only ever materialises a move for a child it actually
-/// keeps (`MoveList::get`).
+/// Materialising the moves as Python tuples dominates enumeration. On a 3000-character 6pt
+/// node with 10 528 moves, building them in Rust and converting takes 24.8 ms against 16.5 ms
+/// for the pure-Python enumeration in `ampzip.search.actions`. The Python version wins because
+/// it reuses one `params` list object across every term slot, while the conversion allocates
+/// a fresh tuple, `str` and `list` per move. Keeping the list opaque skips that entirely. The
+/// search slices it by index through `Expr::apply_slice` and materialises a move through
+/// `MoveList::get` only for a child it keeps.
 #[pyclass]
 struct MoveList {
     moves: Vec<MoveRs>,
@@ -230,8 +225,7 @@ impl MoveList {
         self.moves.len()
     }
 
-    /// Materialise the `k`'th move as the usual
-    /// `(square, i, j, term_slot, identity, params)` tuple.
+    /// The `k`'th move as the usual `(square, i, j, term_slot, identity, params)` tuple.
     fn get(&self, k: usize) -> PyResult<Move> {
         let m = self
             .moves
@@ -241,7 +235,7 @@ impl MoveList {
     }
 }
 
-/// A parsed expression kept as its syntax tree — NOT canonicalised, so a product of sums
+/// A parsed expression kept as its syntax tree without canonicalisation, so a product of sums
 /// is never expanded. The verifier evaluates it at on-shell points as a fraction pair.
 #[pyclass]
 struct Ast {
@@ -250,25 +244,43 @@ struct Ast {
 
 #[pymethods]
 impl Ast {
-    /// Exact value at an on-shell point, `num * den^{-1}` (raises on a vanishing `den`).
-    fn eval(&self, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64) -> PyResult<u64> {
-        eval::eval_ast(&self.ast, &lam, &lamt, p).map_err(PyValueError::new_err)
+    /// Exact value at an on-shell point, `num * den^{-1}`. Raises on a vanishing `den`.
+    /// `params` maps each named parameter to its value in F_p.
+    #[pyo3(signature = (lam, lamt, p, params=None))]
+    fn eval(&self, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64, params: Option<eval::Params>) -> PyResult<u64> {
+        eval::eval_ast(&self.ast, &lam, &lamt, p, &params.unwrap_or_default()).map_err(PyValueError::new_err)
     }
 
-    /// Exact value at an on-shell point as `(num, den)` in F_p with no division performed
-    /// (see `eval::eval_pair`); `den` may be 0 and is for the caller to treat as degenerate.
-    fn eval_pair(&self, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64) -> PyResult<(u64, u64)> {
-        eval::eval_pair(&self.ast, &lam, &lamt, p).map_err(PyValueError::new_err)
+    /// Exact value at an on-shell point as `(num, den)` in F_p with no division performed,
+    /// as in `eval::eval_pair`. `den` may be 0, which the caller treats as degenerate.
+    #[pyo3(signature = (lam, lamt, p, params=None))]
+    fn eval_pair(&self, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64, params: Option<eval::Params>) -> PyResult<(u64, u64)> {
+        eval::eval_pair(&self.ast, &lam, &lamt, p, &params.unwrap_or_default()).map_err(PyValueError::new_err)
+    }
+
+    /// `(has_I, sqrt_primes, param_names)`. I needs p = 1 (mod 4), each listed prime must
+    /// be a square mod p, and each parameter needs a value.
+    fn needs(&self) -> (bool, Vec<u64>, Vec<String>) {
+        eval::needs(&self.ast)
     }
 }
 
-/// Parse a sympy-style string into a resident `Ast` (no canonicalisation, no expansion).
+/// Parse a sympy-style string into a resident `Ast`, with no canonicalisation and no expansion.
+/// `params` lists the identifiers admitted as named parameters.
 #[pyfunction]
-fn parse_ast(expr: &str) -> PyResult<Ast> {
-    Ok(Ast { ast: parse::parse(expr).map_err(PyValueError::new_err)? })
+#[pyo3(signature = (expr, params=None))]
+fn parse_ast(expr: &str, params: Option<Vec<String>>) -> PyResult<Ast> {
+    let ast = parse::parse_with_params(expr, &params.unwrap_or_default()).map_err(PyValueError::new_err)?;
+    Ok(Ast { ast })
 }
 
-/// Sanity entry point.
+/// A square root of `a` mod the odd prime `p`. Raises when there is none.
+#[pyfunction]
+fn sqrt_mod(a: u64, p: u64) -> PyResult<u64> {
+    eval::sqrt_mod(a, p).map_err(PyValueError::new_err)
+}
+
+/// A smoke-test entry point.
 #[pyfunction]
 fn version() -> String {
     format!("ampzip_engine {}", env!("CARGO_PKG_VERSION"))
@@ -280,11 +292,11 @@ fn parses(expr: &str) -> bool {
     parse::parse(expr).is_ok()
 }
 
-/// Exact F_p value at an on-shell point (brackets = 2x2 minors of lam/lamt).
+/// Exact F_p value at an on-shell point, the brackets being 2x2 minors of lam and lamt.
 #[pyfunction]
 fn eval_onshell(expr: &str, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64) -> PyResult<u64> {
     let ast = parse::parse(expr).map_err(PyValueError::new_err)?;
-    eval::eval_ast(&ast, &lam, &lamt, p).map_err(PyValueError::new_err)
+    eval::eval_ast(&ast, &lam, &lamt, p, &eval::Params::new()).map_err(PyValueError::new_err)
 }
 
 /// Parse into a `RatFn`, cancel common monomial factors and exactly divisible
@@ -299,10 +311,10 @@ fn canonical(expr: &str) -> PyResult<String> {
     Ok(poly::ratfn_to_string(&rf))
 }
 
-/// Apply one identity to the numerator bracket `bk(i,j)` of type `square`
-/// (False -> ab, True -> sb), whole-expression. `identity` in
-/// {"schouten","momentum","momentum_sq"}; `params` = [pk,pl] | [pout1,pout2] |
-/// mom_add. Returns the resulting expression string (value-equal to the input).
+/// Apply one identity to the numerator bracket `bk(i,j)` of type `square`, False for ab
+/// and True for sb, over the whole expression. `identity` is one of "schouten",
+/// "momentum" and "momentum_sq", and `params` is [pk,pl], [pout1,pout2] or mom_add
+/// accordingly. Returns the resulting expression string, which is value-equal to the input.
 #[pyfunction]
 fn apply(expr: &str, square: bool, i: u16, j: u16, identity: &str, params: Vec<u16>, n: u16) -> PyResult<String> {
     poly::overflow_check_reset();
@@ -318,10 +330,10 @@ fn apply(expr: &str, square: bool, i: u16, j: u16, identity: &str, params: Vec<u
     Ok(poly::ratfn_to_string(&out))
 }
 
-/// A resident expression handle: keeps the canonical `RatFn` in Rust so a search/MCTS
-/// loop can apply many moves without the parse + to_string round-trip on every step.
-/// Immutable — every mutator returns a NEW `Expr` (cheap BTreeMap clone), which suits an
-/// MCTS tree where parent states persist. Invariant: `rf` is always cancelled.
+/// A resident expression handle that keeps the canonical `RatFn` in Rust, so a search loop
+/// applies many moves without a parse and to_string round-trip on every step. It is
+/// immutable, every mutator returning a new `Expr` by a cheap BTreeMap clone, which suits a
+/// search tree where parent states persist. `rf` is always cancelled.
 #[pyclass(skip_from_py_object)]
 #[derive(Clone)]
 struct Expr {
@@ -331,8 +343,8 @@ struct Expr {
 #[pymethods]
 impl Expr {
     /// Parse a sympy-style string once into the canonical form. `max_terms` bounds the
-    /// numerator term count while the input is expanded (0 = the process default
-    /// `AMPZIP_MAX_TERMS`); a breach raises a ValueError instead of expanding without bound.
+    /// numerator term count while the input is expanded, 0 meaning the process default
+    /// `AMPZIP_MAX_TERMS`. A breach raises a ValueError.
     #[new]
     #[pyo3(signature = (expr, max_terms=0))]
     fn new(expr: &str, max_terms: usize) -> PyResult<Self> {
@@ -354,15 +366,15 @@ impl Expr {
         poly::ratfn_to_string(&self.rf)
     }
 
-    /// The search's dedup key: blake2b-128 of the canonical string, computed here so the
+    /// The search's dedup key, blake2b-128 of the canonical string, computed here so the
     /// string itself never has to be built as a Python object. Byte-identical to
     /// `hashlib.blake2b(expr.to_str().encode(), digest_size=16).digest()`.
     fn key<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &ratfn_key(&self.rf))
     }
 
-    /// `apply` plus everything the search reads off the child, in one call:
-    /// `(child, key, factored_bracket_count, bracket_count, num_terms)` — the sequential
+    /// `apply` plus everything the search reads off the child, in one call, as
+    /// `(child, key, factored_bracket_count, bracket_count, num_terms)`, the sequential
     /// counterpart of one `apply_batch` record. Raises exactly when `apply` would.
     #[pyo3(signature = (square, i, j, identity, params, n, term_slot=0, max_terms=0))]
     #[allow(clippy::too_many_arguments)]
@@ -386,11 +398,11 @@ impl Expr {
         Ok((e, PyBytes::new(py, &k).unbind(), fbc, bc, nt))
     }
 
-    /// Apply one identity to the numerator bracket `bk(i,j)` (square: False -> ab, True
-    /// -> sb) and return a NEW handle. `term_slot=0` rewrites the whole expression (all
-    /// occurrences); `term_slot=k>0` peels ONE occurrence from the engine's k-1'th
-    /// numerator term (engine canonical order). `identity` in
-    /// {"schouten","momentum","momentum_sq"}; `params` = [pk,pl] | [pout1,pout2] | mom_add.
+    /// Apply one identity to the numerator bracket `bk(i,j)`, `square` being False for ab and
+    /// True for sb, and return a new handle. `term_slot=0` rewrites every occurrence in the
+    /// whole expression. `term_slot=k>0` peels one occurrence from the engine's k-1'th
+    /// numerator term in engine canonical order. `identity` is one of "schouten", "momentum"
+    /// and "momentum_sq", and `params` is [pk,pl], [pout1,pout2] or mom_add accordingly.
     #[pyo3(signature = (square, i, j, identity, params, n, term_slot=0, max_terms=0))]
     #[allow(clippy::too_many_arguments)] // mirrors the RL action encoding
     fn apply(
@@ -402,10 +414,10 @@ impl Expr {
         params: Vec<u16>,
         n: u16,
         term_slot: usize,
-        // Per-call numerator term cap for whole-expression and single-term rewrites.
-        // 0 uses the process default `AMPZIP_MAX_TERMS` (see poly::term_limit).
-        // Passed explicitly so the caller can set it per rollout. The environment
-        // value is cached per thread, and runner threads are reused across jobs.
+        // Per-call numerator term cap for whole-expression and single-term rewrites. 0 uses
+        // the process default `AMPZIP_MAX_TERMS` of poly::term_limit. It is passed explicitly
+        // so the caller can set it per rollout. The environment value is cached per thread,
+        // and runner threads are reused across jobs.
         max_terms: usize,
     ) -> PyResult<Expr> {
         poly::overflow_check_reset();
@@ -417,27 +429,27 @@ impl Expr {
         } else {
             ident::substitute_term(&self.rf, target, &ret, term_slot - 1, max_terms).map_err(PyValueError::new_err)?
         };
-        // Raise on a substitution blow-up BEFORE the costly cancel, so a single pathological
-        // move aborts cheaply and the search skips it (existing `except ValueError: continue`).
+        // Raise on a substitution blow-up before the costly cancel, so a single pathological
+        // move aborts cheaply and the search skips it through `except ValueError: continue`.
         check_term_limit()?;
         poly::ratfn_cancel(&mut out);
         check_overflow()?;
         Ok(Expr { rf: out })
     }
 
-    /// Every legal `(square, i, j, term_slot, identity, params)` move for this expression:
-    /// `term_slot=0` (whole expression) for each bracket present in the numerator, plus
-    /// `term_slot=k+1` for each numerator term that carries it. Port of
-    /// `ampzip.search.actions.legal_moves`, same order — that Python version builds the
-    /// per-term bracket sets by regex-scanning `term_monos()`, i.e. it formats every monomial
-    /// to a string and re-parses it; here the sets come straight off the canonical `Mono`.
+    /// Every legal `(square, i, j, term_slot, identity, params)` move for this expression,
+    /// `term_slot=0` for the whole expression once per bracket present in the numerator, plus
+    /// `term_slot=k+1` for each numerator term that carries it. A port of
+    /// `ampzip.search.actions.legal_moves` in the same order. The Python version builds the
+    /// per-term bracket sets by regex-scanning `term_monos()`, formatting every monomial to a
+    /// string and re-parsing it. Here the sets come straight off the canonical `Mono`.
     ///
-    /// No identity-specific masking: all 11/19/32 menu entries are offered once the bracket is
-    /// present, and degenerate ones are rejected when the engine applies them.
+    /// There is no identity-specific masking. All 11, 19 or 32 menu entries are offered once
+    /// the bracket is present, and degenerate ones are rejected when the engine applies them.
     ///
     /// This materialises every move as a Python tuple, which for a large node costs more than
-    /// the enumeration itself — prefer `legal_move_list` + `apply_slice` on the search's hot
-    /// path. This interface also allows comparison with the Python move enumerator.
+    /// the enumeration itself. The search's hot path uses `legal_move_list` with
+    /// `apply_slice`. This interface also allows comparison with the Python move enumerator.
     fn legal_moves(&self, n: u16) -> Vec<Move> {
         enumerate_moves(&self.rf, n)
             .into_iter()
@@ -445,15 +457,15 @@ impl Expr {
             .collect()
     }
 
-    /// The same enumeration, kept resident in Rust as an opaque `MoveList` — see that type for
-    /// why the search wants this instead of the tuple list.
+    /// The same enumeration, kept resident in Rust as an opaque `MoveList`. That type says
+    /// why the search wants this.
     fn legal_move_list(&self, n: u16) -> MoveList {
         MoveList { moves: enumerate_moves(&self.rf, n) }
     }
 
-    /// Apply `moves[offset .. offset+limit]` to this expression on worker threads. Same
-    /// contract and same return shape as `apply_batch`, one entry per move in slice order;
-    /// `limit=0` means "to the end". The move that produced result `k` is `offset + k`, so a
+    /// Apply `moves[offset .. offset+limit]` to this expression on worker threads, with the
+    /// contract and return shape of `apply_batch`, one entry per move in slice order.
+    /// `limit=0` means to the end. The move that produced result `k` is `offset + k`, so a
     /// caller only has to materialise `moves.get(offset + k)` for the children it keeps.
     #[pyo3(signature = (moves, offset, limit, n, max_terms=0, threads=0))]
     #[allow(clippy::too_many_arguments)] // slice bounds + the apply args, all caller-supplied
@@ -473,10 +485,10 @@ impl Expr {
         self.apply_moves_par(py, &all[start..end], n, max_terms, threads)
     }
 
-    /// `apply_slice` with the rejection cause: one `(code, child)` per move in slice order,
-    /// `code` 0 = applied (`child` present), 1 = degenerate identity / illegal term slot,
-    /// 2 = term cap breached, 3 = coefficient overflow (`child` None). Lets the search count
-    /// skipped moves by cause without re-applying them on the calling thread.
+    /// `apply_slice` with the rejection cause, one `(code, child)` per move in slice order.
+    /// `code` 0 means applied with `child` present, 1 a degenerate identity or illegal term
+    /// slot, 2 a breached term cap and 3 a coefficient overflow, with `child` None. The search
+    /// counts skipped moves by cause without re-applying them on the calling thread.
     #[pyo3(signature = (moves, offset, limit, n, max_terms=0, threads=0))]
     #[allow(clippy::too_many_arguments)]
     fn apply_slice_coded(
@@ -498,24 +510,24 @@ impl Expr {
             .collect()
     }
 
-    /// Apply MANY moves to this expression on worker threads, returning one entry per move
-    /// **in input order**: `None` where the sequential `apply()` would raise, else
-    /// `(child, key, factored_bracket_count, bracket_count, num_terms)` — `key` is the
-    /// 16-byte dedup digest (`Expr.key`), so no canonical string ever crosses the GIL.
+    /// Apply many moves to this expression on worker threads, returning one entry per move in
+    /// input order, `None` where the sequential `apply()` would raise and otherwise
+    /// `(child, key, factored_bracket_count, bracket_count, num_terms)`. `key` is the 16-byte
+    /// dedup digest of `Expr.key`, so no canonical string ever crosses the GIL.
     ///
-    /// The four child quantities are computed inside the worker, so the caller never pays
-    /// `to_str()` (a 20k-character format on a deep 6pt child) or the O(terms x brackets)
+    /// The four child quantities are computed inside the worker, so the caller does not pay
+    /// `to_str()`, a 20k-character format on a deep 6pt child, or the O(terms x brackets)
     /// `factored_bracket_count()` under the GIL.
     ///
     /// The GIL is released for the whole batch. Work is handed out through an atomic counter
-    /// rather than by static sharding, because per-move cost is heavy-tailed (measured on a 6pt
-    /// node: median 1.5 ms, max 2.8 s) and contiguous shards would leave most workers idle.
-    /// `threads=0` -> `available_parallelism()`, which honours the process's CPU affinity mask
-    /// and cgroup quota, so it respects a `taskset` / SLURM / container allocation.
+    /// because per-move cost is heavy-tailed, a median of 1.5 ms and a maximum of 2.8 s on a
+    /// 6pt node, and contiguous shards would leave most workers idle. `threads=0` uses
+    /// `available_parallelism()`, which honours the process's CPU affinity mask and cgroup
+    /// quota, so it respects a `taskset`, SLURM or container allocation.
     ///
-    /// Callers must keep the ORDER-SENSITIVE bookkeeping (budget accounting, dedup, best
-    /// tracking, goal break) serial and replay it over this list in order — then the result is
-    /// bit-identical to applying the moves one at a time. See `ampzip/search/gbfs.py`.
+    /// Callers keep the order-sensitive bookkeeping, budget accounting, dedup, best tracking
+    /// and the goal break, serial and replay it over this list in order. The result is then
+    /// bit-identical to applying the moves one at a time, as `ampzip/search/gbfs.py` does.
     #[pyo3(signature = (moves, n, max_terms=0, threads=0))]
     fn apply_batch(
         &self,
@@ -529,7 +541,7 @@ impl Expr {
             .iter()
             .map(|(sq, i, j, ts, ident, p)| {
                 // The identity tag has to become 'static to share the worker core with
-                // `apply_slice`; an unknown one is passed through as "" and `apply_core`
+                // `apply_slice`. An unknown one is passed through as "" and `apply_core`
                 // rejects it exactly as `build_identity` would.
                 let tag: &'static str = match ident.as_str() {
                     "schouten" => "schouten",
@@ -543,8 +555,8 @@ impl Expr {
         self.apply_moves_par(py, &owned, n, max_terms, threads)
     }
 
-    /// Number of additive terms in the numerator (canonical form). Re-read after every
-    /// apply — substitution merges/splits terms so indices shift.
+    /// Number of additive terms in the canonical numerator. Re-read it after every apply,
+    /// since substitution merges and splits terms and indices shift.
     fn num_terms(&self) -> usize {
         self.rf.num.len()
     }
@@ -559,16 +571,17 @@ impl Expr {
             .sum()
     }
 
-    /// Factor-aware search heuristic: numerator bracket multiplicity AFTER pulling the
-    /// common monomial factor out of the numerator sum (ONE level, like sympy
-    /// `factor_terms` — no recursion into partial-overlap subgroups). A bracket carried
-    /// by EVERY term is counted once, not once per term, so
-    /// `ab(1,2)ab(2,3)ab(3,4) + ab(1,2)ab(2,3)ab(4,5)` scores 4, not 6. Equals
-    /// `bracket_count()` for a single term. Denominator excluded, as in `bracket_count`.
+    /// The factored bracket count, the numerator bracket multiplicity after the common
+    /// monomial factor is pulled out of the numerator sum, one level deep like sympy
+    /// `factor_terms` and with no recursion into partial-overlap subgroups. A bracket
+    /// carried by every term is counted once, so
+    /// `ab(1,2)ab(2,3)ab(3,4) + ab(1,2)ab(2,3)ab(4,5)` scores 4. It equals
+    /// `bracket_count()` for a single term and excludes the denominator, as `bracket_count`
+    /// does.
     ///
-    /// Closed form: `raw - (num_terms - 1) * common_total`, where `raw` is
-    /// `bracket_count()` and `common_total` is the sum over brackets of the min exponent
-    /// across all terms (a common bracket must appear in every term, hence in the first).
+    /// In closed form it is `raw - (num_terms - 1) * common_total`, where `raw` is
+    /// `bracket_count()` and `common_total` the sum over brackets of the minimum exponent
+    /// across all terms. A common bracket appears in every term, hence in the first.
     fn factored_bracket_count(&self) -> u64 {
         let nterms = self.rf.num.len();
         let raw: u64 = self
@@ -580,8 +593,8 @@ impl Expr {
         if nterms <= 1 {
             return raw;
         }
-        // Candidates for the common factor are the first term's brackets: a bracket
-        // shared by every term must appear there. For each, min exponent over all terms.
+        // Candidates for the common factor are the first term's brackets, since a bracket
+        // shared by every term appears there. For each, the minimum exponent over all terms.
         let mut common_total = 0u64;
         if let Some((first, _)) = self.rf.num.iter().next() {
             for (bk, &e0) in first {
@@ -601,8 +614,8 @@ impl Expr {
         raw - (nterms as u64 - 1) * common_total
     }
 
-    /// Distinct brackets present in the numerator, as `(square, i, j)`, canonical order —
-    /// for building an action mask.
+    /// Distinct brackets present in the numerator, as `(square, i, j)` in canonical order,
+    /// for building a move mask.
     fn distinct_brackets(&self) -> Vec<(bool, u16, u16)> {
         let mut set = std::collections::BTreeSet::new();
         for m in self.rf.num.keys() {
@@ -618,14 +631,14 @@ impl Expr {
     }
 
     /// Exact F_p value at an on-shell point, computed straight from the resident RatFn
-    /// (no re-parse). Agrees with the stateless `eval_onshell`.
+    /// without a re-parse. Agrees with the stateless `eval_onshell`.
     fn eval_onshell(&self, lam: Vec<Vec<u64>>, lamt: Vec<Vec<u64>>, p: u64) -> PyResult<u64> {
         eval::eval_ratfn_modp(&self.rf, &lam, &lamt, p).map_err(PyValueError::new_err)
     }
 
-    /// Per-term monomial strings (coefficient stripped), engine canonical order. The
-    /// constant term is reported as "1". Used by the Python move enumerator and
-    /// action mask to identify the brackets in each numerator term.
+    /// Per-term monomial strings with the coefficient stripped, in engine canonical order.
+    /// The constant term is reported as "1". The Python move enumerator and move mask use
+    /// them to identify the brackets in each numerator term.
     fn term_monos(&self) -> Vec<String> {
         self.rf
             .num
@@ -653,8 +666,8 @@ impl Expr {
             .collect()
     }
 
-    /// Structured numerator: per term `(coeff, [(square, i, j, exponent), ...])`, engine
-    /// canonical order. For building observation tensors without string parsing.
+    /// The structured numerator, per term `(coeff, [(square, i, j, exponent), ...])` in
+    /// engine canonical order, for building observation tensors without string parsing.
     fn term_powers(&self) -> Vec<TermPow> {
         self.rf
             .num
@@ -663,15 +676,15 @@ impl Expr {
             .collect()
     }
 
-    /// Denominator brackets as `(square, i, j, exponent)`, canonical order (always a
-    /// single monomial; empty if the expression is a polynomial).
+    /// Denominator brackets as `(square, i, j, exponent)` in canonical order. The denominator
+    /// is always a single monomial, and the list is empty for a polynomial.
     fn den_brackets(&self) -> Vec<BracketPow> {
         self.rf.den.iter().map(|(bk, e)| (bk.square, bk.i, bk.j, *e)).collect()
     }
 
-    /// Opaque (sum) denominator factors, each as its list of terms
-    /// `[(coeff, [(square, i, j, exponent), ...]), ...]`. Empty for the common monomial
-    /// case; populated only for B2 opaque poles (e.g. the spurious pole of eq 5.28).
+    /// The sum-denominator factors, each as its list of terms
+    /// `[(coeff, [(square, i, j, exponent), ...]), ...]`. Empty in the common monomial case
+    /// and populated for sum-denominators such as the spurious pole of eq 5.28.
     fn den_opaque_terms(&self) -> Vec<Vec<TermPow>> {
         self.rf
             .den_opaque
@@ -684,12 +697,13 @@ impl Expr {
             .collect()
     }
 
-    /// Denominator-aware search bias: how much of the (monomial) denominator is NOT yet
-    /// cancellable against the numerator. For each denominator bracket b^e, the cancellable
-    /// amount is the min over numerator terms of b's exponent there (a bracket cancels only
-    /// if EVERY term carries it); the remaining gap is sum of max(0, e - that_min). 0 means
-    /// the whole denominator can cancel now. Mirrors `ratfn_cancel`'s inner loop, computed
-    /// in Rust so the den-aware `value_fn` stays off the Python hot path (was ~2.3x wall).
+    /// Denominator-aware search bias, the amount of the monomial denominator not yet
+    /// cancellable against the numerator. For each denominator bracket b^e the cancellable
+    /// amount is the minimum over numerator terms of b's exponent there, since a bracket
+    /// cancels only if every term carries it. The remaining gap is the sum of
+    /// max(0, e - that_min), and 0 means the whole denominator can cancel now. This mirrors
+    /// `ratfn_cancel`'s inner loop and is computed in Rust so the denominator-aware
+    /// `value_fn` stays off the Python hot path, which cost about 2.3x the wall time.
     fn den_match_remaining(&self) -> u64 {
         let mut rem = 0u64;
         for (bk, &e) in &self.rf.den {
@@ -704,7 +718,7 @@ impl Expr {
                 }
             }
             if mn == u32::MAX {
-                mn = 0; // empty numerator (degenerate; rf is cancelled so this is rare)
+                mn = 0; // an empty numerator, rare since rf is cancelled
             }
             rem += e.saturating_sub(mn) as u64;
         }
@@ -713,8 +727,8 @@ impl Expr {
 }
 
 impl Expr {
-    /// Worker core shared by `apply_batch` and `apply_slice`: apply every move in `moves` off
-    /// the GIL and return the results **in input order**. See `apply_batch` for the contract.
+    /// Worker core shared by `apply_batch` and `apply_slice`. It applies every move in `moves`
+    /// off the GIL and returns the results in input order. `apply_batch` states the contract.
     fn apply_moves_par(
         &self,
         py: Python<'_>,
@@ -729,7 +743,7 @@ impl Expr {
             .collect()
     }
 
-    /// The worker loop behind `apply_slice` / `apply_batch` / `apply_slice_coded`: one
+    /// The worker loop behind `apply_slice`, `apply_batch` and `apply_slice_coded`, one
     /// `(code, record)` per move in input order, computed off the GIL.
     fn apply_moves_par_coded(
         &self,
@@ -803,6 +817,7 @@ fn ampzip_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Expr>()?;
     m.add_class::<MoveList>()?;
     m.add_function(wrap_pyfunction!(parse_ast, m)?)?;
+    m.add_function(wrap_pyfunction!(sqrt_mod, m)?)?;
     m.add_class::<Ast>()?;
     Ok(())
 }

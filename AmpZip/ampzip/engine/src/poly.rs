@@ -10,15 +10,14 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 thread_local! {
-    /// Set by checked coefficient arithmetic when an i128 op overflows; read and
-    /// cleared at the PyO3 boundary (lib.rs). Lets every internal signature stay
-    /// infallible while still surfacing overflow loudly. Remove when coefficients
-    /// move to bigint.
+    /// Set by checked coefficient arithmetic when an i128 op overflows, read and
+    /// cleared at the PyO3 boundary in lib.rs. The internal signatures stay infallible
+    /// and overflow still surfaces. It goes away when coefficients move to bigint.
     static OVERFLOW: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Flag a coefficient overflow on the current thread (called by checked arithmetic
-/// in this module and in `ident.rs`).
+/// Flag a coefficient overflow on the current thread. The checked arithmetic in this
+/// module and in `ident.rs` calls it.
 pub(crate) fn set_overflow() {
     OVERFLOW.with(|f| f.set(true));
 }
@@ -34,7 +33,7 @@ thread_local! {
     /// allows an application to stop when intermediate expressions grow too large,
     /// for example while constructing `ret^power`.
     static TERM_LIMIT_HIT: Cell<bool> = const { Cell::new(false) };
-    /// Cached per-thread term cap (0 = not yet read from the environment).
+    /// Cached per-thread term cap, 0 until it is read from the environment.
     static TERM_LIMIT: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -71,8 +70,8 @@ pub(crate) fn term_limit() -> usize {
     })
 }
 
-/// A bracket, canonicalized so that `i < j` (antisymmetry sign is carried by the
-/// caller via [`make_bracket`]). `square=false` => angle `ab`, `true` => `sb`.
+/// A bracket, canonicalized so that `i < j`. The caller carries the antisymmetry sign
+/// through [`make_bracket`]. `square=false` is the angle bracket `ab` and `true` is `sb`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct Bracket {
     pub square: bool,
@@ -80,8 +79,8 @@ pub(crate) struct Bracket {
     pub j: u16,
 }
 
-/// Canonicalize `bracket(a,b)` to `i<j`; return `(bracket, sign)` with sign 0 if
-/// `a == b` (the bracket is identically zero).
+/// Canonicalize `bracket(a,b)` to `i<j` and return `(bracket, sign)`, with sign 0 when
+/// `a == b` and the bracket is identically zero.
 pub(crate) fn make_bracket(square: bool, a: u16, b: u16) -> (Bracket, i128) {
     use std::cmp::Ordering::*;
     match a.cmp(&b) {
@@ -91,21 +90,21 @@ pub(crate) fn make_bracket(square: bool, a: u16, b: u16) -> (Bracket, i128) {
     }
 }
 
-/// A monomial: bracket -> positive exponent.
+/// A monomial, bracket -> positive exponent.
 pub(crate) type Mono = BTreeMap<Bracket, u32>;
-/// A polynomial: monomial -> nonzero integer coefficient.
+/// A polynomial, monomial -> nonzero integer coefficient.
 pub(crate) type Poly = BTreeMap<Mono, i128>;
 
 /// A rational function `num / (den * prod(den_opaque))`.
 ///
-/// `den` is a monomial (product of brackets); `den_opaque` is a list of opaque polynomial
-/// (sum) denominator factors kept SYMBOLIC and never expanded into `den` — the B2 support
-/// for binomial spurious poles like `<2|(6+1)|5]` of eq 5.28.
+/// `den` is a monomial, a product of brackets. `den_opaque` lists the sum-denominator
+/// factors, kept symbolic and never expanded into `den`, which supports spurious poles
+/// such as `<2|(6+1)|5]` of eq 5.28.
 ///
-/// INVARIANT: `den_opaque` is EMPTY for every sympy-parsed monomial-denominator input
-/// (100% of the shipped datasets). When it is empty, every RatFn operation runs its
-/// original monomial-only path, guarded by `den_opaque.is_empty()`, so the common case is
-/// byte-identical and pays only one `Vec::is_empty()` check (guarantee B).
+/// `den_opaque` is empty for every input with a monomial denominator, which is every case
+/// of the public sets. When it is empty, every RatFn operation runs its monomial-only path,
+/// guarded by `den_opaque.is_empty()`, so the common case is byte-identical and pays one
+/// `Vec::is_empty()` check.
 #[derive(Clone, Debug)]
 pub(crate) struct RatFn {
     pub num: Poly,
@@ -113,7 +112,7 @@ pub(crate) struct RatFn {
     pub den_opaque: Vec<Poly>,
 }
 
-// --- low-level poly/mono helpers (shared with ident.rs) --- //
+// --- low-level poly and mono helpers, shared with ident.rs --- //
 pub(crate) fn poly_add_term(poly: &mut Poly, mono: Mono, coeff: i128) {
     if coeff == 0 {
         return;
@@ -127,8 +126,8 @@ pub(crate) fn poly_add_term(poly: &mut Poly, mono: Mono, coeff: i128) {
         }
     }
 }
-/// Like `poly_add_term` but skips the overflow check — for `ratfn_cancel`, which only
-/// re-adds coefficients that already coexisted in one polynomial (cannot overflow).
+/// `poly_add_term` without the overflow check, for `ratfn_cancel`, which only re-adds
+/// coefficients that already coexisted in one polynomial and so cannot overflow.
 fn poly_add_term_unchecked(poly: &mut Poly, mono: Mono, coeff: i128) {
     if coeff == 0 {
         return;
@@ -203,7 +202,7 @@ pub(crate) fn ratfn_add(a: &RatFn, b: &RatFn) -> RatFn {
     let lcm = mono_lcm(&a.den, &b.den);
     let fa = mono_div(&lcm, &a.den);
     let fb = mono_div(&lcm, &b.den);
-    // Fast path (the common case): no opaque denominator factors -> original monomial-LCM add.
+    // The fast path of the common case, no sum-denominator factors, is the monomial-LCM add.
     if a.den_opaque.is_empty() && b.den_opaque.is_empty() {
         let mut num = Poly::new();
         for (m, c) in &a.num {
@@ -215,10 +214,10 @@ pub(crate) fn ratfn_add(a: &RatFn, b: &RatFn) -> RatFn {
         poly_prune(&mut num);
         return RatFn { num, den: lcm, den_opaque: Vec::new() };
     }
-    // Opaque path: common denominator = mono-LCM * multiset-union of the opaque factors.
-    // Treat each distinct opaque polynomial as an indivisible "prime": each side's numerator
-    // is multiplied by the monomial cofactor AND by the opaque factors the OTHER side
-    // contributes that this side lacks (multiset difference).
+    // With sum-denominator factors the common denominator is the monomial LCM times the
+    // multiset union of the factors. Each distinct factor is treated as an indivisible prime.
+    // Each side's numerator is multiplied by the monomial cofactor and by the factors the
+    // other side contributes that this side lacks, the multiset difference.
     let union = opaque_union(&a.den_opaque, &b.den_opaque);
     let a_missing = opaque_diff(&union, &a.den_opaque);
     let b_missing = opaque_diff(&union, &b.den_opaque);
@@ -238,7 +237,7 @@ pub(crate) fn ratfn_add(a: &RatFn, b: &RatFn) -> RatFn {
     RatFn { num, den: lcm, den_opaque: union }
 }
 
-/// Polynomial product (checked coefficients).
+/// Polynomial product with checked coefficients.
 fn poly_mul(a: &Poly, b: &Poly) -> Poly {
     let mut r = Poly::new();
     for (ma, ca) in a {
@@ -268,8 +267,8 @@ fn poly_scale_mono(a: &Poly, m: &Mono) -> Poly {
     r
 }
 
-/// Multiset union of two opaque-factor lists (each distinct polynomial kept to the max of
-/// its two multiplicities). Lists are tiny (<= a few factors), so linear scans are fine.
+/// Multiset union of two opaque-factor lists, each distinct polynomial kept to the larger
+/// of its two multiplicities. The lists hold at most a few factors, so linear scans suffice.
 fn opaque_union(a: &[Poly], b: &[Poly]) -> Vec<Poly> {
     let mut out = a.to_vec();
     let mut done: Vec<&Poly> = Vec::new();
@@ -287,7 +286,7 @@ fn opaque_union(a: &[Poly], b: &[Poly]) -> Vec<Poly> {
     out
 }
 
-/// Multiset difference `union - a`: the opaque factors (with multiplicity) that `a` lacks.
+/// Multiset difference `union - a`, the opaque factors with multiplicity that `a` lacks.
 fn opaque_diff(union: &[Poly], a: &[Poly]) -> Vec<Poly> {
     let mut used = vec![false; a.len()];
     let mut out = Vec::new();
@@ -325,8 +324,8 @@ pub(crate) fn ratfn_mul(a: &RatFn, b: &RatFn) -> RatFn {
         }
     }
     poly_prune(&mut num);
-    // Opaque denominator factors of a product multiply: concatenate both operands' lists
-    // (empty for the common monomial case, so this allocates nothing there).
+    // The sum-denominator factors of a product multiply, so both operands' lists are
+    // concatenated. They are empty in the common monomial case and nothing is allocated.
     let den_opaque = if a.den_opaque.is_empty() && b.den_opaque.is_empty() {
         Vec::new()
     } else {
@@ -342,9 +341,8 @@ pub(crate) fn ratfn_recip(a: &RatFn) -> Result<RatFn, String> {
         return Err("division by zero".to_string());
     }
     if !a.den_opaque.is_empty() {
-        // 1/a would move the opaque sum factor(s) into the numerator (a non-monomial
-        // denominator going up top). Only ever hit by a negative power of an opaque-den
-        // expression, which B2 inputs do not produce — surface it rather than expand.
+        // 1/a would move the sum factors into the numerator. Only a negative power of a
+        // sum-denominator expression reaches this, which no supported input produces.
         return Err("reciprocal of expression with opaque denominator factor".to_string());
     }
     if a.num.len() != 1 {
@@ -354,15 +352,15 @@ pub(crate) fn ratfn_recip(a: &RatFn) -> Result<RatFn, String> {
     if *c != 1 && *c != -1 {
         return Err(format!("reciprocal with non-unit coefficient {}", c));
     }
-    // 1 / (c * m / a.den) = c * a.den / m   (c = ±1)
+    // 1 / (c * m / a.den) = c * a.den / m with c = ±1.
     let mut num = Poly::new();
     num.insert(a.den.clone(), *c);
     Ok(RatFn { num, den: m.clone(), den_opaque: Vec::new() })
 }
 
-/// Combine like terms (already maintained) and cancel common bracket powers between the
-/// numerator and the denominator. First the monomial part (`cancel_mono`), then — only if
-/// present — the opaque sum factors (`cancel_opaque`, the B2 construct-then-cancel step).
+/// Cancel common bracket powers between the numerator and the denominator, like terms
+/// being combined already. First the monomial part in `cancel_mono`, then, if present, the
+/// sum factors in `cancel_opaque`, the construct-then-cancel step.
 pub(crate) fn ratfn_cancel(rf: &mut RatFn) {
     if rf.num.is_empty() {
         rf.den = Mono::new();
@@ -419,11 +417,11 @@ fn cancel_mono(rf: &mut RatFn) {
     rf.num = newnum;
 }
 
-/// For each opaque sum factor `S` in the denominator, attempt EXACT free-polynomial
-/// division of the numerator by `S`; on a zero remainder, replace the numerator with the
-/// quotient and drop `S` (the factor is constructed and cancelled). A factor that does not
-/// divide (a genuine pole, or not-yet-constructed) is kept. After any cancellation the
-/// quotient may share brackets with the monomial denominator, so re-run `cancel_mono`.
+/// For each sum factor `S` in the denominator, attempt exact free-polynomial division of
+/// the numerator by `S`. On a zero remainder the numerator becomes the quotient and `S` is
+/// dropped, the factor having been constructed and cancelled. A factor that does not
+/// divide, a physical pole or one not yet constructed, is kept. After any cancellation the
+/// quotient may share brackets with the monomial denominator, so `cancel_mono` runs again.
 fn cancel_opaque(rf: &mut RatFn) {
     let opaque = std::mem::take(&mut rf.den_opaque);
     let mut remaining = Vec::new();
@@ -447,27 +445,27 @@ fn cancel_opaque(rf: &mut RatFn) {
     }
 }
 
-/// Admissible (graded-lex) ordering key for a monomial: total degree, then the sorted
-/// `(bracket, exp)` list. Gives a well-defined leading term so polynomial division is exact.
+/// Graded-lexicographic ordering key for a monomial, the total degree and then the sorted
+/// `(bracket, exp)` list. It gives a well-defined leading term, so polynomial division is exact.
 fn mono_key(m: &Mono) -> (u32, Vec<(Bracket, u32)>) {
     (m.values().sum(), m.iter().map(|(b, e)| (*b, *e)).collect())
 }
 
-/// Leading `(monomial, coeff)` of a polynomial under `mono_key`, or None if empty.
+/// Leading `(monomial, coeff)` of a polynomial under `mono_key`, or None when empty.
 fn poly_leading(p: &Poly) -> Option<(Mono, i128)> {
     p.iter()
         .max_by(|a, b| mono_key(a.0).cmp(&mono_key(b.0)))
         .map(|(m, c)| (m.clone(), *c))
 }
 
-/// True iff monomial `a` divides `b` (every bracket power in `a` is <= that in `b`).
+/// True iff monomial `a` divides `b`, every bracket power in `a` being at most that in `b`.
 fn mono_divides(a: &Mono, b: &Mono) -> bool {
     a.iter().all(|(k, e)| b.get(k).is_some_and(|be| be >= e))
 }
 
 /// Exact quotient `num / s` as free multivariate polynomials over the brackets, or `None`
-/// if `s` does not divide `num` exactly (nonzero remainder, or a non-divisible coefficient).
-/// Standard leading-term reduction under the admissible `mono_key` order.
+/// when `s` does not divide `num` exactly, by a nonzero remainder or a non-divisible
+/// coefficient. Standard leading-term reduction under the `mono_key` order.
 fn poly_exact_div(num: &Poly, s: &Poly) -> Option<Poly> {
     let (s_lm, s_lc) = poly_leading(s)?;
     let mut r = num.clone();
@@ -494,8 +492,8 @@ fn poly_exact_div(num: &Poly, s: &Poly) -> Option<Poly> {
     Some(q)
 }
 
-/// Build a monomial from a list of `(square,a,b)` brackets; `None` if any bracket
-/// is identically zero (a==b). Returns `(mono, product_of_signs)`.
+/// Build a monomial from a list of `(square,a,b)` brackets, `None` when a bracket with
+/// a==b is identically zero. Returns `(mono, product_of_signs)`.
 pub(crate) fn mono_from(brs: &[(bool, u16, u16)]) -> Option<(Mono, i128)> {
     let mut m = Mono::new();
     let mut sign = 1i128;
@@ -554,8 +552,8 @@ pub(crate) fn ratfn_to_string(rf: &RatFn) -> String {
     } else {
         format!("({})/({})", s, mono_to_string(&rf.den))
     };
-    // Opaque sum factors ride in the denominator as `* opaque_den(S)` (which parses back to
-    // 1/S), keeping the round-trip exact. Empty in the common case -> `out` unchanged.
+    // Sum factors ride in the denominator as `* opaque_den(S)`, which parses back to 1/S,
+    // so the round trip is exact. In the common case the list is empty and `out` is unchanged.
     for sp in &rf.den_opaque {
         let inner = ratfn_to_string(&RatFn { num: sp.clone(), den: Mono::new(), den_opaque: Vec::new() });
         out = format!("({})*opaque_den({})", out, inner);
