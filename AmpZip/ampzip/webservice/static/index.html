@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AmpZip</title>
 <!-- MathJax (vendored, SVG output: one self-contained file, works offline) renders
-     ⟨i j⟩ / [i j]; if it fails to load, expressions fall back to plain text (see renderMath()). -->
+     ⟨i j⟩ and [i j]. If it fails to load, renderMath() shows expressions as plain text. -->
 <script>
   window.MathJax = { tex: { inlineMath: [['$', '$']] }, svg: { fontCache: 'global' } };
 </script>
@@ -41,15 +41,15 @@
   .controls > div { display:flex; flex-direction:column; }
   .controls select { width:auto; }
   .controls input[type=number] { width:5em; }
-  /* the two gbfs budgets accept 6-digit values (max_apps up to 100000); a 5em box
-     clips them once the spinner arrows take their share, so give them room. */
+  /* The two gbfs budgets accept 6-digit values, max_apps up to 100000. A 5em box
+     clips them once the spinner arrows take their share, so they get more room. */
   .controls input#gbfs_max_apps { width:8em; }
   .controls input#gbfs_max_seconds { width:7em; }
   .preview { min-height:42px; padding:10px 12px; border:1px dashed var(--line);
              border-radius:8px; background:#0c1020;
              overflow-x:auto; overflow-y:hidden; }
-  /* .preview.mjx beats .mjx (2 classes > 1) so the preview keeps its horizontal
-     padding — otherwise .mjx's `padding:6px 0` zeroes it and the formula hugs
+  /* .preview.mjx beats .mjx, two classes against one, so the preview keeps its
+     horizontal padding. .mjx's `padding:6px 0` would zero it and the formula would hug
      the left edge. */
   .preview.mjx { padding:10px 12px; }
   button { margin-top:14px; background:var(--acc); color:#06122e; border:0;
@@ -62,7 +62,7 @@
   th { color:var(--muted); font-weight:600; }
   .tag-ok { color:var(--ok); } .tag-no { color:var(--muted); }
   /* overflow-wrap:anywhere lets the long unspaced ab()/sb() product string wrap
-     mid-token instead of overflowing; it also shrinks the element's min-content
+     mid-token and never overflows. It also shrinks the element's min-content
      width, so a .mono inside the green answer box can't force that box wider than
      its column (which was pushing the box past the panel edge). */
   .mono { font-family: ui-monospace,Menlo,monospace; font-size:12px; color:var(--muted);
@@ -70,8 +70,8 @@
   /* A gbfs result on an opaque input can be 1000+ brackets / several KB of raw
      ab/sb text. Fold anything long behind a native <details> so it doesn't carpet
      the page: the collapsed summary shows a one-line preview + char count, and the
-     expanded body scrolls inside a bounded box instead of growing without limit.
-     Short forms (the common case) skip the fold and render inline. */
+     expanded body scrolls inside a bounded box.
+     Short forms, the common case, skip the fold and render inline. */
   .min-raw { margin-top:4px; }
   .mono-fold > summary { cursor:pointer; list-style:none; display:flex; gap:8px;
           align-items:baseline; padding:6px 8px; border:1px dashed var(--line);
@@ -97,9 +97,9 @@
   .skl-head { display:flex; align-items:center; justify-content:space-between; }
   .skl-head h3 { margin:0; }
   .skl-timer { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  /* fixed progressive slot: a transparent wrapper (display:contents keeps the card's own
-     margins/spacing) so each algorithm keeps a stable position while its skeleton swaps to
-     a result in place — nothing reorders. */
+  /* A fixed progressive slot, a transparent wrapper whose display:contents keeps the card's
+     own margins, so each algorithm keeps a stable position while its skeleton swaps to a
+     result in place and nothing reorders. */
   .progress-slot { display: contents; }
   .skl-line { height:12px; border-radius:6px; margin:10px 0;
               background:rgba(255,255,255,0.06); }
@@ -109,8 +109,8 @@
     transform:translateX(-100%); animation:skl-sweep 1.3s infinite; }
   @keyframes skl-sweep { 100% { transform:translateX(100%); } }
   /* tooltip-on-hover hint marker: small circle with "?" next to a label.
-     `title` attribute is intentionally NOT used so we avoid the browser's
-     ~500ms delay and white-on-dark mismatch; the pseudo-element below
+     The `title` attribute is unused because of the browser's
+     500ms delay and white-on-dark mismatch. The pseudo-element below
      reads from data-tip and renders a panel-coloured tooltip immediately. */
   .hint { display:inline-block; width:15px; height:15px; line-height:15px;
           text-align:center; font-size:10px; font-weight:700;
@@ -118,7 +118,7 @@
           border-radius:50%; margin-left:4px;
           cursor:help; position:relative; user-select:none; vertical-align:middle; }
   .hint:hover { color:var(--ink); background:rgba(255,255,255,0.16); }
-  /* open DOWNWARD (top, not bottom) so a hint near the page top isn't clipped. */
+  /* open downward so a hint near the page top isn't clipped. */
   .hint[data-tip]:hover::after {
     content: attr(data-tip);
     position:absolute; top:calc(100% + 8px); left:50%;
@@ -151,10 +151,10 @@
     color:var(--ink); white-space:nowrap; }
   .ntab .mjx { padding:2px 0; }
   .modal .note { color:var(--muted); font-size:12.5px; line-height:1.55; margin:8px 0 0; }
-  /* result + derivation side-by-side; stacks on narrow screens */
-  /* minmax(0,1fr) (not plain 1fr = minmax(auto,1fr)) lets each column shrink below
+  /* The result and the derivation side by side, stacked on narrow screens. */
+  /* minmax(0,1fr), unlike plain 1fr, lets each column shrink below
      the intrinsic width of a long non-wrapping formula, so the .mjx overflow-x
-     scrollbar engages INSIDE the column instead of the formula spilling past the
+     scrollbar engages inside the column before the formula spills past the
      panel edge. The min-width:0 below is the same fix one level down. */
   .result-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
   .result-grid > div { min-width:0; }
@@ -302,14 +302,14 @@
       </div>
     </div>
 
-    <!-- Sticks around until the next run: a clamped tunable must not be reported in the
-         status line, which the poll loop overwrites a second later. -->
+    <!-- Stays until the next run. The status line would lose a clamp note when the poll
+         loop overwrites it a second later. -->
     <div id="paramNote" class="status" style="display:none"></div>
 
     <button id="go">Simplify</button>
     <button id="stop" style="display:none">Stop</button>
     <div id="status" class="status"></div>
-    <!-- Earlier runs kept in this browser's localStorage (inputs + results); see the
+    <!-- Earlier runs, inputs and results, kept in this browser's localStorage by the
          "local persistence" block in the script. -->
     <div id="historyBar" class="status" style="display:none">
       saved in this browser:
@@ -320,8 +320,8 @@
 
   <div id="results"></div>
 
-  <!-- #5 diff feature: simplify A - B; a result of 0 means A and B are equal.
-       Reuses the main /api/jobs endpoint by submitting "(A) - (B)". -->
+  <!-- The difference feature simplifies A - B, and a result of 0 means A and B are
+       equal. It submits "(A) - (B)" to the main /api/jobs endpoint. -->
   <div class="panel">
     <label>Compare expressions</label>
     <div class="kv" style="margin-top:4px">
@@ -395,10 +395,9 @@
 
 <script>
 // ---- ab/sb sympy-string -> LaTeX -------------------------------------------
-// Handles the common amplitude shape (monomial / monomial ratio) well; nested
-// sums render acceptably but without perfect grouping. Brackets + powers are
-// always correct, which is the priority.
-// split a comma-list at depth 0 (so [..] channels stay intact)
+// Handles the common amplitude shape, a monomial or a ratio of monomials. Nested sums
+// render without perfect grouping. Brackets and powers come first.
+// Split a comma list at depth 0, so [..] channels stay intact.
 function splitArgsDepth0(s) {
   let depth = 0, parts = [], cur = '';
   for (const c of s) {
@@ -413,7 +412,7 @@ function splitArgsDepth0(s) {
 function channelToLatex(ch) {            // "[1,6]" -> "1+6"
   return ch.trim().replace(/^\[|\]$/g, '').split(',').map(x => x.trim()).join('+');
 }
-// chain('as',5,[1,6],2) -> \langle 5|1+6|2]   (4 end-types: aa/as/sa/ss)
+// chain('as',5,[1,6],2) -> \langle 5|1+6|2]. The four end types are aa, as, sa and ss.
 function chainsToLatex(s) {
   let out = '', i = 0;
   while (i < s.length) {
@@ -433,7 +432,7 @@ function chainsToLatex(s) {
   }
   return out;
 }
-// s(1,2,6) -> s_{126}  (concatenate single-digit legs; comma-join otherwise)
+// s(1,2,6) -> s_{126}. Single-digit legs are concatenated and others comma-joined.
 function mandelstamsToLatex(s) {
   return s.replace(/s\(\s*([\d\s,]+?)\s*\)/g, (_, legs) => {
     const arr = legs.split(',').map(x => x.trim());
@@ -441,27 +440,25 @@ function mandelstamsToLatex(s) {
   });
 }
 function bracketsToLatex(s) {
-  s = chainsToLatex(s);                  // Dirac chains first (they contain no ab/sb text)
-  s = mandelstamsToLatex(s);             // then Mandelstam s(...)  (note: sb( is untouched)
+  s = chainsToLatex(s);                  // Dirac chains first, which contain no ab/sb text
+  s = mandelstamsToLatex(s);             // then Mandelstam s(...), leaving sb( untouched
   s = s.replace(/ab\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, '\\langle $1\\,$2\\rangle');
   s = s.replace(/sb\(\s*(\d+)\s*,\s*(\d+)\s*\)/g, '[$1\\,$2]');
   return s;
 }
-// Render a single atom (a function call like ab(1,2)/sb/s/chain, a number, or a
-// bare symbol). Atoms never contain top-level +, -, *, / — those are handled by
-// the recursive-descent parser below, so precedence is respected.
+// Render a single atom, a function call like ab(1,2), sb, s or chain, a number, or a
+// bare symbol. Atoms never contain top-level +, -, *, /. The recursive-descent parser
+// below handles those, so precedence is respected.
 function atomToLatex(s) {
   s = bracketsToLatex(s.trim());
   s = s.replace(/\bI\b/g, 'i');            // imaginary unit
   return s;
 }
-// Recursive-descent parser: expr := term ((+|-) term)* ;
-// term := factor ((* | /) factor)* ; factor := atom (** exponent)?.
-// Multiplication and division share precedence and bind left-to-right, so a/b*c
-// = (a/b)*c keeps c in the NUMERATOR — fixing the old splitTopLevel which dumped
-// everything after the first '/' (and any following '+') into the denominator.
-// Each parse fn returns { latex, isSum }; isSum marks an additive expression that
-// must be parenthesized when used as a factor/power/denominator.
+// Recursive-descent parser. expr := term ((+|-) term)*, term := factor ((* | /) factor)*,
+// factor := atom (** exponent)?. Multiplication and division share precedence and bind
+// left to right, so a/b*c = (a/b)*c keeps c in the numerator. Each parse function returns
+// { latex, isSum }, and isSum marks an additive expression that must be parenthesized
+// when used as a factor, power or denominator.
 function parseSpinorExpr(s, opts) {
   const prefactor = !!(opts && opts.prefactor);   // gbfs_f only: leading 1/A prefactor spelling
   let i = 0;
@@ -524,13 +521,13 @@ function parseSpinorExpr(s, opts) {
       return { latex: num.map(wrap).join('\\,'), isSum: false };
     }
     const denL = den.map(wrap).join('\\,');
-    // Pull the denominator OUT FRONT when a numerator factor is a sum that itself
-    // contains fractions, so `(A/C + B/D)/E` renders as `1/E · (A/C + B/D)` instead
-    // of a three-story fraction (the shape factor_terms leaves after hoisting a shared
-    // pole out of a summed gbfs_f result). OPT-IN only (prefactor) so gbfs_e and every
-    // other backend keep their existing two-story rendering — matches the reconstruct.py
-    // opt-in, so the shape is NEVER sniffed on non-gbfs_f output. Only fires on a
-    // nested-fraction sum (its latex has a \dfrac); a plain sum like (a+b)/c is unaffected.
+    // Pull the denominator out front when a numerator factor is a sum that itself contains
+    // fractions, so `(A/C + B/D)/E` renders as `1/E · (A/C + B/D)`, the shape factor_terms
+    // leaves after hoisting a shared pole out of a summed gbfs_f result. This is opt-in
+    // through `prefactor`, as in reconstruct.py, so gbfs_e and every other backend keep
+    // their two-story rendering and the shape is never sniffed on other output. It fires
+    // only on a nested-fraction sum, whose latex has a \dfrac. A plain sum like (a+b)/c is
+    // unaffected.
     const isNestedSum = (f) => f.isSum && f.latex.indexOf('\\dfrac') !== -1;
     const nested = prefactor ? num.filter(isNestedSum) : [];
     if (nested.length) {
@@ -554,10 +551,10 @@ function parseSpinorExpr(s, opts) {
       else break;
     }
     if (terms.length === 1 && terms[0].sign === '+') return terms[0].t;
-    // A term that is itself a sum lost its parens in parseAtom, so re-add them
-    // whenever the sign in front of it would otherwise distribute over only its
-    // first summand: `(A) - (b1 + b2)` must render as A - (b1 + b2), not
-    // A - b1 + b2. A leading '+' sum can stay flattened (it is equivalent).
+    // A term that is itself a sum lost its parens in parseAtom, so they are re-added
+    // whenever the sign in front of it would otherwise distribute over only its first
+    // summand. `(A) - (b1 + b2)` must render as A - (b1 + b2). A leading '+' sum can stay
+    // flattened, which is equivalent.
     let out = '';
     terms.forEach((e, k) => {
       const l = (e.sign === '-' && e.t.isSum) ? '\\left(' + e.t.latex + '\\right)'
@@ -571,9 +568,9 @@ function parseSpinorExpr(s, opts) {
   return parseExpr();
 }
 function chunkToLatex(s) { return parseSpinorExpr(s.trim()).latex; }
-// Pull every opaque_den(S) factor out of `s` (the engine's symbolic 1/S for a
-// polynomial-sum denominator pole, B2). Swallows one adjacent '*' and any **k power.
-// Returns { rest, opaque:[innerS, ...] } so S can be rendered UNDER the fraction bar.
+// Pull every opaque_den(S) factor, the engine's symbolic 1/S for a sum-denominator pole,
+// out of `s`. Swallows one adjacent '*' and any **k power. Returns
+// { rest, opaque:[innerS, ...] } so S can be rendered under the fraction bar.
 function extractOpaqueDen(s) {
   const opaque = [];
   let out = '', i = 0;
@@ -603,13 +600,13 @@ function exprToLatex(s, opts) {
   s = s.trim();
   const { rest, opaque } = extractOpaqueDen(s);
   if (opaque.length === 0) return parseSpinorExpr(s, opts).latex;
-  // opaque factor(s) are denominator poles → place them under the bar.
+  // The opaque factors are denominator poles, so they go under the bar.
   const restTrim = rest.trim() || '1';
   const parsed = parseSpinorExpr(restTrim);
   const denChunks = opaque.map(S => '\\left(' + parseSpinorExpr(S).latex + '\\right)');
   if (parsed.num) {
-    // `rest` is a single quotient term: merge opaque into its denominator so we
-    // get one bar instead of a nested fraction.
+    // `rest` is a single quotient term. Merge opaque into its denominator so it
+    // renders with one bar.
     const wrap = (f) => f.isSum ? '\\left(' + f.latex + '\\right)' : f.latex;
     const numL = parsed.num.length ? parsed.num.map(wrap).join('\\,') : '1';
     const denL = parsed.den.map(wrap).join('\\,');
@@ -635,7 +632,7 @@ const previewEl = document.getElementById('preview');
 function updatePreview() { renderMath(previewEl, exprEl.value); }
 exprEl.addEventListener('input', updatePreview);
 
-// ---- submit + poll (parameterized: each panel passes its own elements) ------
+// ---- submit and poll, each panel passing its own elements ------------------
 const goBtn = document.getElementById('go');
 const statusEl = document.getElementById('status');
 const resultsEl = document.getElementById('results');
@@ -657,9 +654,9 @@ function selectedAlgos() {
   return Array.from(document.querySelectorAll('.algo:checked')).map(c => c.value);
 }
 
-// A number input's max= only constrains the spinner arrows and form validation — a TYPED
-// out-of-range value submits happily and is then clamped server-side with no feedback, so
-// the run silently ignores what the box shows. Clamp on the way out and say so.
+// A number input's max= only constrains the spinner arrows and form validation. A typed
+// out-of-range value submits and is then clamped server-side with no feedback, so the run
+// silently ignores what the box shows. Clamp on the way out and say so.
 function clampNum(el, note) {
   const lo = parseFloat(el.min), hi = parseFloat(el.max);
   const v = parseFloat(el.value);
@@ -709,13 +706,13 @@ function currentOpts(notes) {
 async function run(ctx) {
   ctx.resultsEl.innerHTML = '';
   ctx.resultsEl.__slotCount = 0;        // new job: drop the old fixed slots, rebuild fresh
-  // Claim this panel for the new job: any still-running poll from a previous job on this
-  // panel now sees a newer epoch and stops writing (see pollJob's `alive()` guard).
+  // Claim this panel for the new job. Any still-running poll from a previous job on this
+  // panel now sees a newer epoch and stops writing, through pollJob's `alive()` guard.
   const myEpoch = (ctx.resultsEl.__epoch = (ctx.resultsEl.__epoch || 0) + 1);
   const clampNotes = [];
   const opts = currentOpts(clampNotes);
   showParamNotes(clampNotes);
-  if (ctx.statusEl === statusEl) { ctx.form = readForm(); saveForm(); }   // main panel: persist
+  if (ctx.statusEl === statusEl) { ctx.form = readForm(); saveForm(); }   // the main panel persists its form
   if (opts.algorithms.length === 0) {
     ctx.statusEl.innerHTML = '<span class="err">Select at least one algorithm.</span>'; return;
   }
@@ -723,9 +720,9 @@ async function run(ctx) {
     ctx.statusEl.innerHTML = '<span class="err">Enter an expression.</span>'; return;
   }
   const body = Object.assign({ expr: ctx.expr }, opts);
-  // A panel may override n-point independently of the top selector (ctx.nPoint):
-  //   number -> force it; null -> auto with no inference (let the backend infer);
-  //   undefined -> leave the top-panel n_point untouched (main Simplify panel).
+  // A panel may override n-point independently of the top selector through ctx.nPoint. A
+  // number forces it, null lets the backend infer it, and undefined leaves the top-panel
+  // n_point untouched, as the main Simplify panel does.
   if (ctx.nPoint !== undefined) {
     if (ctx.nPoint === null) delete body.n_point;
     else body.n_point = ctx.nPoint;
@@ -750,8 +747,8 @@ async function run(ctx) {
   }
   ctx.statusEl.textContent = 'queued — job ' + data.job_id + ' (n=' + data.n_point + ')'
     + (data.note ? ' · ' + data.note : '');
-  // Every adjustment the server made (ceilings, fallbacks, aliases, dropped backends) is
-  // reported back; show it and set the inputs to the applied values.
+  // Every adjustment the server made, whether a limit, a fallback, an alias or a dropped
+  // backend, is reported back. Show it and set the inputs to the applied values.
   if (data.clamped && Object.keys(data.clamped).length) {
     const notes = [];
     for (const [k, v] of Object.entries(data.clamped)) {
@@ -769,26 +766,24 @@ async function run(ctx) {
   pollJob(data.job_id, ctx, myEpoch);
 }
 
-// Per-tab key for the main-panel in-flight job, so a page reload (or a transient poll
-// failure we recovered from) can re-attach instead of orphaning a still-running
-// server-side job (#3). Uses sessionStorage, NOT localStorage, so it is scoped to THIS
-// browser tab: with several tabs open, each remembers only the job IT submitted — a
-// second tab's submit no longer clobbers the first tab's reconnect pointer, and one
-// tab finishing (forgetJob) doesn't wipe another tab's. sessionStorage survives a
-// reload of the same tab (the case this feature exists for) but not closing it.
-// Only the main panel persists — secondary panels (diff) are cheap to re-run.
+// Per-tab key for the main-panel in-flight job, so a page reload, or a transient poll
+// failure we recovered from, can re-attach to the running server-side job. It uses
+// sessionStorage so it is scoped to this browser tab. With several tabs open, each
+// remembers only the job it submitted. A second tab's submit does not clobber the first
+// tab's reconnect pointer, and one tab finishing through forgetJob does not wipe
+// another's. sessionStorage survives a reload of the same tab, the case this feature
+// exists for, but not closing it. Only the main panel persists. The diff panel is
+// cheap to re-run.
 const ACTIVE_JOB_KEY = 'simplifier.activeJob';
 function rememberJob(jobId) { try { sessionStorage.setItem(ACTIVE_JOB_KEY, jobId); } catch (e) {} }
 function forgetJob()        { try { sessionStorage.removeItem(ACTIVE_JOB_KEY); } catch (e) {} }
 
-// One poll GET, classified. A result is "attachable" only when it is HTTP 200
-// with a JSON body. Everything else is TRANSIENT: a Cloudflare Access
-// interstitial (HTML), a tunnel 5xx/524, an expired-session redirect, or a
-// dropped connection. Previously the caller did `(await fetch()).json()` with no
-// guard, so any non-JSON body threw a SyntaxError ("The string did not match the
-// expected pattern." on Safari) and killed the poll loop while the job kept
-// running server-side. 404 means the job is truly gone (server restarted / job
-// evicted from the in-memory store).
+// One poll GET, classified. A result is attachable only when it is HTTP 200 with a JSON
+// body. Everything else is transient, a Cloudflare Access interstitial in HTML, a tunnel
+// 5xx or 524, an expired-session redirect or a dropped connection. The caller once did
+// `(await fetch()).json()` with no guard, so any non-JSON body threw a SyntaxError and
+// killed the poll loop while the job kept running server-side. 404 means the job is gone,
+// after a server restart or eviction from the in-memory store.
 async function pollOnce(jobId) {
   const g = await fetch('/api/jobs/' + jobId, { headers: { 'accept': 'application/json' } });
   if (g.status === 404) return { gone: true };
@@ -797,13 +792,13 @@ async function pollOnce(jobId) {
   return { jr: await g.json() };   // may still throw on a truncated body -> caught by caller
 }
 
-// `epoch` is this poll's GENERATION TOKEN for its panel. run()/reattach bump
-// ctx.resultsEl.__epoch when they claim the panel for a new job; this loop writes to the
-// panel (status, results, Stop target, sessionStorage) ONLY while its epoch is still the
-// current one. The instant a newer job supersedes this panel, `alive()` goes false and
-// this poll returns WITHOUT touching any shared UI — so two overlapping polls (e.g. a
-// reconnect probe racing a fresh submit) can never interleave one job's results with
-// another's. Correctness guarantee: a panel only ever shows the job it currently owns.
+// `epoch` is this poll's generation token for its panel. run() and reattach bump
+// ctx.resultsEl.__epoch when they claim the panel for a new job, and this loop writes to
+// the panel, its status, results, Stop target and sessionStorage, only while its epoch
+// is still the current one. The instant a newer job supersedes this panel, `alive()`
+// goes false and this poll returns without touching any shared UI, so two overlapping
+// polls, such as a reconnect probe racing a fresh submit, never interleave one job's
+// results with another's. A panel only ever shows the job it currently owns.
 async function pollJob(jobId, ctx, epoch) {
   const alive = () => ctx.resultsEl.__epoch === epoch;
   if (!alive()) return;   // already superseded before we even started
@@ -821,16 +816,16 @@ async function pollJob(jobId, ctx, epoch) {
     if (!alive()) return;   // a newer job took over this panel during the wait
     let out;
     try { out = await pollOnce(jobId); }
-    catch (e) { out = { transient: true }; }   // network drop / .json() on a partial body
-    if (!alive()) return;   // ...or during the fetch — drop this (stale) response
+    catch (e) { out = { transient: true }; }   // a network drop or .json() on a partial body
+    if (!alive()) return;   // superseded during the fetch, so this stale response is dropped
     if (out.gone) {
       ctx.statusEl.innerHTML = '<span class="err">This job is no longer available on the server. Submit it again.</span>';
       if (isMain) forgetJob();
       break;
     }
     if (out.transient) {
-      // #1: retry instead of breaking — a single Access/tunnel blip must not
-      // abandon a running job. Keep the sessionStorage pointer set so a reload can re-attach.
+      // Retry, so a single Access or tunnel blip does not abandon a running job. The
+      // sessionStorage pointer stays set so a reload can re-attach.
       if (++fails > MAX_FAILS) {
         ctx.statusEl.innerHTML = '<span class="err">Connection lost. The job may still be running. Reload the page to resume status updates.</span>';
         break;
@@ -848,25 +843,25 @@ async function pollJob(jobId, ctx, epoch) {
       if (isMain) { forgetJob(); saveHistory(jobId, ctx.form || null, jr); }
       break;
     }
-    // still running: show finished backends + skeletons for the rest (first-done-first-shown)
+    // Still running. Show the finished backends and skeletons for the rest.
     renderProgress(jr, ctx.resultsEl, t0);
   }
-  if (!alive()) return;   // superseded meanwhile — leave the button/Stop to the newer job
+  if (!alive()) return;   // superseded meanwhile, so the button and Stop belong to the newer job
   if (isMain) { activeCancelJob = null; stopBtn.style.display = 'none'; }
   ctx.btn.disabled = false;
 }
 
 function mjxDiv(sympyStr, prefactor) {
-  // a div MathJax will fill, carrying the raw expr in data-expr. data-prefactor="1"
-  // opts the deferred renderMath into the leading 1/A prefactor spelling (gbfs_f only).
+  // A div MathJax will fill, carrying the raw expr in data-expr. data-prefactor="1"
+  // opts the deferred renderMath into the leading 1/A prefactor spelling, for gbfs_f only.
   return '<div class="mjx" data-expr="' + encodeURIComponent(sympyStr || '') + '"' +
          (prefactor ? ' data-prefactor="1"' : '') + '></div>';
 }
 
-// A derivation row's collapsible detail: the instantiated rewrite RULE (rendered),
-// the raw ab/sb text (selectable), and copy / send-to-verifier buttons. Folding all
-// of this behind a "▸ details" toggle keeps the default panel uncluttered while the
-// raw text stays one click away for pasting into the equivalence checker below.
+// A derivation row's collapsible detail, the instantiated rewrite rule rendered, the raw
+// ab/sb text selectable, and copy and send-to-verifier buttons. Folding all of this behind
+// a details toggle keeps the default panel uncluttered while the raw text stays one click
+// away for pasting into the equivalence checker below.
 let _derUid = 0;
 function stepDetail(rawExpr, ruleLhs, ruleRhs) {
   const id = 'der_' + (++_derUid);
@@ -887,9 +882,9 @@ function stepDetail(rawExpr, ruleLhs, ruleRhs) {
        + '<div class="der-detail" id="' + id + '" hidden>' + inner + '</div>';
 }
 
-// Render a "lhs -> rhs" rewrite (two sympy-notation strings) as one math line.
-// Lazy: only called when its detail box is first opened (so MathJax never typesets
-// hidden boxes, and long momentum expansions cost nothing until viewed).
+// Render a lhs -> rhs rewrite, two sympy-notation strings, as one math line. It is
+// called only when its detail box is first opened, so MathJax never typesets hidden
+// boxes and long momentum expansions cost nothing until viewed.
 function renderRuleEl(el) {
   if (el.dataset.rendered) return;
   const lhs = decodeURIComponent(el.getAttribute('data-lhs') || '');
@@ -902,9 +897,9 @@ function renderRuleEl(el) {
   el.dataset.rendered = '1';
 }
 
-// One delegated click handler per results container (idempotent): expand toggles,
-// copy-to-clipboard, and send-to-verifier (drops the raw expr into the A/B fields
-// of the equivalence checker, then scrolls it into view).
+// One delegated click handler per results container, installed once, for the expand
+// toggles, copy to clipboard, and send to verifier, which drops the raw expr into the
+// A and B fields of the equivalence checker and scrolls it into view.
 function bindDerivation(container) {
   if (container.__derBound) return;
   container.__derBound = true;
@@ -942,10 +937,10 @@ function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Render a raw expression string as a <div class="mono">, but fold it behind a
-// collapsible <details> when it is long enough to swamp the page (e.g. a gbfs
-// result on an opaque input). The copy button sits OUTSIDE the <details> so
-// copying never toggles the fold, and reuses the delegated der-copy handler.
+// Render a raw expression string as a <div class="mono">, folded behind a collapsible
+// <details> when it is long enough to swamp the page, such as a gbfs result on a
+// sum-denominator input. The copy button sits outside the <details> so copying never
+// toggles the fold, and it reuses the delegated der-copy handler.
 const MONO_FOLD_CHARS = 400;
 function monoBlock(raw) {
   const s = raw || '';
@@ -962,13 +957,13 @@ function monoBlock(raw) {
        + '</div>';
 }
 
-// A greedy rollout keeps walking for max_steps even after it reaches the
-// minimum. The DERIVATION we want to show is origin -> answer, i.e. the prefix
-// up to the step that first reaches the minimum bracket count. Everything after
-// is post-answer wandering and is hidden. We also drop intra-prefix cycles
-// (revisited states) so the shown chain is the cleaned path to the answer.
+// A greedy rollout keeps walking for max_steps even after it reaches the minimum. The
+// derivation to show runs from the input to the answer, the prefix up to the step that
+// first reaches the minimum bracket count. Everything after is post-answer wandering and
+// is hidden. Cycles inside the prefix, revisited states, are dropped too, so the shown
+// chain is the cleaned path to the answer.
 function provingPrefix(traj, startExpr, startBrackets, rawMin) {
-  // index of the first step that reaches the minimum (the answer state)
+  // The index of the first step that reaches the minimum, the answer state.
   let minIdx = -1;
   if (rawMin < startBrackets) {
     for (let i = 0; i < traj.length; i++) {
@@ -978,8 +973,8 @@ function provingPrefix(traj, startExpr, startBrackets, rawMin) {
   if (minIdx < 0) return { steps: [], hidden: traj.length };
 
   let prefix = traj.slice(0, minIdx + 1);
-  // Collapse cycles: if expr_after repeats a state we've already seen along the
-  // prefix (incl. the input), jump straight there — removes up-then-back detours.
+  // Collapse cycles. If expr_after repeats a state already seen along the prefix, the
+  // input included, jump straight there, which removes up-then-back detours.
   const seen = new Map();          // expr string -> position in cleaned chain
   seen.set(startExpr, -1);         // -1 = the input row
   const cleaned = [];
@@ -1012,15 +1007,15 @@ function renderDerivation(r, startExpr) {
     ? ('Derivation &middot; ' + steps.length + ' step' + (steps.length > 1 ? 's' : ''))
     : 'Derivation &middot; no simpler form found';
   let html = '<div class="steps"><div class="steps-head">' + head + '</div>';
-  // input row — details (raw text + copy/send buttons) tucked into the expander
+  // The input row, with the raw text and the copy and send buttons tucked into the expander.
   html += '<div class="step"><div class="step-hd"><span class="step0">Input</span>'
         + '<span class="step-bk">' + startBrackets + ' brackets</span></div>'
         + mjxDiv(startExpr)
         + stepDetail(startExpr, null, null) + '</div>';
 
   if (steps.length === 0) {
-    // No reducing path: either the input is already minimal, or the model
-    // missed a reduction. We can't tell which — state it honestly.
+    // No reducing path. Either the input is already minimal or the model missed a
+    // reduction, and the page cannot tell which.
     html += '<div class="step"><div class="kv">explored ' + traj.length
           + ' step' + (traj.length === 1 ? '' : 's') + " without getting below "
           + startBrackets + ' brackets.'
@@ -1040,7 +1035,7 @@ function renderDerivation(r, startExpr) {
             + mjxDiv(s.expr_after)
             + stepDetail(s.expr_after, s.rule_lhs, s.rule_rhs) + '</div>';
     });
-    // "post-answer wandering" note only makes sense when an answer was reached.
+    // The post-answer wandering note only makes sense when an answer was reached.
     if (hidden > 0) {
       html += '<div class="kv" style="padding-top:8px">+' + hidden
             + ' later steps omitted</div>';
@@ -1050,7 +1045,7 @@ function renderDerivation(r, startExpr) {
   return html;
 }
 
-// Pretty display labels for the algorithm keys (keys are the API/log contract).
+// Display labels for the algorithm keys. The keys are the API and log contract.
 const ALGO_LABELS = {
   sft_greedy: 'SFT-greedy',
   sft_best_of_n: 'SFT best-of-N',
@@ -1090,9 +1085,9 @@ function renderResults(jr, container) {
   bindDerivation(container);   // expand toggles + copy / send-to-verifier (once per container)
 }
 
-// Build one result card (a DOM element). Shared by the terminal renderResults and the
-// progressive renderProgress so a finished-early backend renders identically to the final.
-// Why the run ended and what it skipped: every stop and every rejected move is reported.
+// Build one result card as a DOM element. Shared by the terminal renderResults and the
+// progressive renderProgress so a backend that finished early renders identically to the
+// final one. Every stop and every rejected move is reported.
 function runNotes(r) {
   const ex = r.extra || {};
   const bits = [];
@@ -1133,10 +1128,9 @@ function buildResultCard(r, startExpr) {
         monoBlock(r.min_expr_str || r.final_expr_str || '')
       : '') +
     err + '</div>';
-  // Only show the derivation panel when the result is actually simpler than the
-  // input (min < start, or it collapsed to 0). If min == start the algorithm made
-  // no progress, so there is no derivation worth showing — give the left panel the
-  // full width instead of a "no simpler form found" placeholder beside it.
+  // Only show the derivation panel when the result is simpler than the input, min below
+  // start or a collapse to 0. If min equals start the algorithm made no progress, so there
+  // is no derivation worth showing and the left panel takes the full width.
   const improved = isZero || (r.bracket_count_min >= 0 && r.bracket_count_min < r.bracket_count_start);
   if (improved) {
     const right = '<div>' + renderDerivation(r, startExpr) + '</div>';
@@ -1147,12 +1141,12 @@ function buildResultCard(r, startExpr) {
   return card;
 }
 
-// Translate the server's job start into a CLIENT-clock baseline (ms) for the running
-// timers. We anchor to (server_now - started_at) — the true elapsed the server reports —
-// rather than to any client-side submit/poll time, so the elapsed shown is the REAL time
-// since the job started: correct after a page reload/reconnect (the browser's own start
-// time is gone then) and immune to client/server clock skew. `fallbackMs` (the poll start)
-// is used only for an older server that doesn't send server_now/started_at.
+// Translate the server's job start into a client-clock baseline in ms for the running
+// timers. The anchor is server_now - started_at, the elapsed the server reports, so the
+// elapsed shown is the time since the job started. That holds after a page reload or
+// reconnect, when the browser's own start time is gone, and is independent of clock skew between
+// client and server. `fallbackMs`, the poll start, is used only for an older server that
+// does not send server_now and started_at.
 function skeletonAnchorMs(jr, fallbackMs) {
   const sn = jr && jr.server_now, st = jr && jr.started_at;
   if (typeof sn === 'number' && typeof st === 'number' && sn >= st) {
@@ -1161,21 +1155,21 @@ function skeletonAnchorMs(jr, fallbackMs) {
   return fallbackMs;
 }
 
-// Progressive render while the job is still running. FIXED SLOT ORDER: one slot per
-// algorithm, in REQUEST order, created once and never reordered. Each slot shows a skeleton
-// while its backend runs and swaps to the result card IN PLACE the moment that backend
-// finishes — so a finished result appears immediately (first-done-first-shown) WITHOUT any
-// card jumping position, and neither the skeletons nor the finished cards ever get reordered
-// or re-typeset. Running timers are anchored to the server's true job start (skeletonAnchorMs).
+// Progressive render while the job is still running. There is one slot per algorithm, in
+// request order, created once and never reordered. Each slot shows a skeleton while its
+// backend runs and swaps to the result card in place the moment that backend finishes, so
+// a finished result appears immediately without any card jumping position, and neither
+// the skeletons nor the finished cards are reordered or re-typeset. Running timers are
+// anchored to the server's job start in skeletonAnchorMs.
 function renderProgress(jr, container, fallbackMs) {
   const partial = jr.partial;
   if (!Array.isArray(partial) || partial.length === 0) return false;
   const startExpr = (jr.request && jr.request.expr) || '';
   const anchorMs = skeletonAnchorMs(jr, fallbackMs);
 
-  // (Re)build the fixed set of slots only when the algorithm count changes (i.e. a new job,
-  // after run() clears the container). Never on a mere status change — that is handled
-  // per-slot below without disturbing the others.
+  // Rebuild the fixed set of slots only when the algorithm count changes, which means a new
+  // job after run() clears the container, and never on a status change. Status changes are
+  // handled per slot below without disturbing the others.
   if (container.__slotCount !== partial.length) {
     container.innerHTML = '';
     container.__slots = [];
@@ -1194,7 +1188,7 @@ function renderProgress(jr, container, fallbackMs) {
     if (!slot) return;
     const isDone = !!(p && p.status === 'done' && p.result);
     if (isDone && slot.dataset.state !== 'done') {
-      // finished: replace this slot's skeleton with its result card, typeset only it
+      // Finished. Replace this slot's skeleton with its result card and typeset only it.
       slot.innerHTML = '';
       slot.appendChild(buildResultCard(p.result, startExpr));
       slot.dataset.state = 'done';
@@ -1207,22 +1201,22 @@ function renderProgress(jr, container, fallbackMs) {
       slot.appendChild(buildSkeletonCard(p ? p.algorithm : '', anchorMs));
       slot.dataset.state = 'running';
     }
-    // else: unchanged — leave the DOM in place (skeleton ticker keeps advancing;
-    // a done card is never rebuilt, so it never flickers or moves).
+    // Otherwise the slot is unchanged and the DOM stays in place. The skeleton ticker keeps
+    // advancing, and a done card is not rebuilt, so it does not flicker or move.
   });
   return true;
 }
 
-// A shimmer placeholder for a backend that hasn't returned yet. `anchorMs` is the
-// client-clock instant the job started (from the server, see skeletonAnchorMs). The timer
-// is advanced both on each rebuild (seeded below) and by a light 1s ticker between polls.
+// A shimmer placeholder for a backend that has not returned yet. `anchorMs` is the
+// client-clock instant the job started, from the server through skeletonAnchorMs. The
+// timer is advanced on each rebuild, seeded below, and by a light 1 s ticker between polls.
 function buildSkeletonCard(algoKey, anchorMs) {
   const card = document.createElement('div');
   card.className = 'card skeleton';
   const start = Number.isFinite(anchorMs) ? anchorMs : Date.now();
-  // Seed the timer with the CORRECT elapsed at creation (not 0.0s) so a skeleton created
-  // mid-run — e.g. when another backend just finished and forced a rebuild — never flashes
-  // back to zero before the 1s ticker updates it.
+  // Seed the timer with the elapsed time at creation so a skeleton created mid-run, for
+  // example when another backend just finished and forced a rebuild, never flashes back
+  // to zero before the 1 s ticker updates it.
   const s0 = ((Date.now() - start) / 1000).toFixed(1);
   card.innerHTML =
     '<div class="skl-head">' +
@@ -1235,8 +1229,8 @@ function buildSkeletonCard(algoKey, anchorMs) {
   return card;
 }
 
-// One global ticker keeps every running skeleton's elapsed time moving between the
-// ~2s polls. Cheap no-op when there are no skeletons on the page.
+// One global ticker keeps every running skeleton's elapsed time moving between the polls,
+// which are about 2 s apart. It is a cheap no-op when there are no skeletons on the page.
 setInterval(() => {
   document.querySelectorAll('.skl-timer[data-start]').forEach(el => {
     const s = ((Date.now() - Number(el.getAttribute('data-start'))) / 1000).toFixed(1);
@@ -1249,24 +1243,24 @@ goBtn.addEventListener('click', () => run({
   expr: exprEl.value, statusEl: statusEl, resultsEl: resultsEl, btn: goBtn,
 }));
 
-// ---- reconnect-after-submit (#3) ----
-// On RELOAD of this tab, re-attach to the still-running main-panel job THIS tab
-// submitted (the id is in per-tab sessionStorage). Jobs live in the server's in-memory
-// store, so this works only while that process is alive; a vanished job (server
-// restarted / evicted) returns 404 and is cleared silently. A long gbfs run whose tab
-// was reloaded (or whose poll hit a transient blip) thus resumes into the same view
-// instead of being lost. (Closing the tab entirely drops the pointer — sessionStorage
-// is per-tab-session by design, which is what keeps multiple tabs from colliding.)
+// ---- reconnect-after-submit ----
+// On a reload of this tab, re-attach to the still-running main-panel job this tab
+// submitted, whose id is in per-tab sessionStorage. Jobs live in the server's in-memory
+// store, so this works only while that process is alive. A vanished job, after a server
+// restart or an eviction, returns 404 and is cleared silently. A long gbfs run whose tab
+// was reloaded, or whose poll hit a transient blip, thus resumes into the same view.
+// Closing the tab drops the pointer, since sessionStorage is per tab session, which is
+// what keeps multiple tabs from colliding.
 (async function reattachActiveJob() {
   let jobId;
   try { jobId = sessionStorage.getItem(ACTIVE_JOB_KEY); } catch (e) { return; }
   if (!jobId) return;
-  // Claim the main panel for this reconnect BEFORE the async probe. If the user submits a
-  // fresh job during the probe (Go is still enabled here), that submit bumps the epoch and
-  // every branch below bails — so the reconnect can never clobber the new job (no cross-talk).
+  // Claim the main panel for this reconnect before the async probe. If the user submits a
+  // fresh job during the probe, Go being still enabled here, that submit bumps the epoch
+  // and every branch below bails, so the reconnect never clobbers the new job.
   const myEpoch = (resultsEl.__epoch = (resultsEl.__epoch || 0) + 1);
-  // Probe once so we don't flip the UI into "running" for a job that already
-  // finished or vanished while the tab was reloading.
+  // Probe once so the UI is not flipped into running for a job that finished or vanished
+  // while the tab was reloading.
   let out;
   try { out = await pollOnce(jobId); }
   catch (e) { out = { transient: true }; }
@@ -1279,13 +1273,13 @@ goBtn.addEventListener('click', () => run({
     saveHistory(jobId, null, out.jr);
     return;
   }
-  // running, or a transient probe failure -> resume the poll loop
+  // Running, or a transient probe failure. Resume the poll loop.
   statusEl.textContent = 'reconnecting to job ' + jobId + '…';
   goBtn.disabled = true;
   pollJob(jobId, { statusEl: statusEl, resultsEl: resultsEl, btn: goBtn }, myEpoch);
 })();
 
-// ---- diff panel (#5): submit "(A) - (B)" to the same endpoint ----
+// ---- diff panel, which submits "(A) - (B)" to the same endpoint ----
 const exprAEl = document.getElementById('exprA');
 const exprBEl = document.getElementById('exprB');
 const diffPreviewEl = document.getElementById('diffPreview');
@@ -1298,9 +1292,9 @@ function diffExpr() {
   if (!A || !B) return '';
   return '(' + A + ') - (' + B + ')';
 }
-// Mirror of the backend _infer_n rule: max integer leg (1..6) among the arguments of
-// ab/sb/s/chain, skipping Pow exponents and the chain type string. Used for the diff
-// block's "auto" n-point so it can resolve from A even when A-B collapses to 0.
+// Mirror of the backend's _infer_n rule, the largest integer leg from 1 to 6 among the
+// arguments of ab, sb, s and chain, skipping Pow exponents and the chain type string. The
+// diff block's auto n-point uses it so it can resolve from A even when A-B collapses to 0.
 function inferNFromExpr(s) {
   const noPow = (s || '').replace(/\*\*\s*\d+/g, ' ');
   const calls = noPow.match(/(?:ab|sb|s|chain)\s*\([^)]*\)/g) || [];
@@ -1311,7 +1305,7 @@ function inferNFromExpr(s) {
     }
   return legs.length ? Math.max(...legs) : null;
 }
-// n-point for the comparison block: explicit 4/5/6, else auto = inferred from A alone.
+// The n-point for the comparison block, explicit 4, 5 or 6, else inferred from A alone.
 function diffNPoint() {
   const v = document.getElementById('diffNpoint').value;
   if (v) return parseInt(v, 10);
@@ -1328,7 +1322,7 @@ goDiffBtn.addEventListener('click', () => {
         nPoint: diffNPoint() });
 });
 
-// ---- numerical equivalence check (sub-second, no model) --------------------
+// ---- numerical equivalence check --------------------------------------------
 const goNumCheckBtn = document.getElementById('goNumCheck');
 
 async function runNumCheck() {
@@ -1341,7 +1335,7 @@ async function runNumCheck() {
   diffStatusEl.textContent = 'evaluating numerically…';
 
   const body = { A: A, B: B };
-  // Use the comparison block's own n-point (explicit 4/5/6, else auto from A).
+  // Use the comparison block's own n-point, explicit 4, 5 or 6, else auto from A.
   const np = document.getElementById('diffNpoint').value;
   if (np) body.n_point = parseInt(np, 10);
 
@@ -1369,37 +1363,31 @@ async function runNumCheck() {
 }
 
 function renderNumCheckResult(data) {
-  const rel = data.rel_diff;
-  const hasScore = typeof rel === 'number' && Number.isFinite(rel);
-  // Accept the earlier boolean-only response while a server is being upgraded.
-  const status = hasScore ? (data.check_status ||
-    (data.equiv === true ? 'matched' : data.equiv === false ? 'mismatch' : 'inconclusive'))
-    : 'inconclusive';
-  const relStr = hasScore ? (rel === 0 ? '0' : rel.toExponential(2)) : '';
+  const status = data.check_status ||
+    (data.equiv === true ? 'matched' : data.equiv === false ? 'mismatch' : 'inconclusive');
+  const method = data.method ? '<div class="kv">' + esc(data.method) + '</div>' : '';
   if (status === 'matched') {
     diffResultsEl.innerHTML =
       '<div class="card">' +
-        '<h3><span class="tag-ok">Numerical match</span></h3>' +
-        '<div class="kv">rel_diff = ' + relStr + ' (tolerance 2&times;10<sup>&minus;9</sup>) &middot; ' +
-          esc(data.method || '') + '</div>' +
+        '<h3><span class="tag-ok">Numerical match</span></h3>' + method +
         '<div class="kv" style="margin-top:6px">' +
-          'The expressions agree within tolerance at two precomputed on-shell configurations. ' +
-          'This provides numerical evidence of equality.' +
+          'The expressions agree exactly at every sampled on-shell point, ' +
+          'which is probabilistic evidence of equality.' +
         '</div>' +
       '</div>';
   } else if (status === 'mismatch') {
     diffResultsEl.innerHTML =
       '<div class="card">' +
-        '<h3><span class="tag-no">Numerical mismatch</span></h3>' +
-        '<div class="kv">rel_diff = ' + relStr + ' (tolerance 2&times;10<sup>&minus;9</sup>)</div>' +
+        '<h3><span class="tag-no">Numerical mismatch</span></h3>' + method +
         '<div class="kv" style="margin-top:6px">' +
-          'The evaluations differ beyond tolerance at the tested configurations.</div>' +
+          'The expressions differ at a sampled on-shell point.</div>' +
       '</div>';
   } else {
     diffResultsEl.innerHTML =
       '<div class="card">' +
-        '<h3>Inconclusive</h3>' +
-        '<div class="kv">No reliable numerical comparison was obtained.</div>' +
+        '<h3>Inconclusive</h3>' + method +
+        '<div class="kv" style="margin-top:6px">Too many sampled points were singular ' +
+          '(for example, a denominator that vanishes on shell), so no comparison was obtained.</div>' +
       '</div>';
   }
 }
@@ -1428,8 +1416,8 @@ notationCloseBtn.addEventListener('click', closeNotation);
 notationModal.addEventListener('click', e => { if (e.target === notationModal) closeNotation(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNotation(); });
 
-// ---- input ceilings come from the server (GET /api/limits), not from the hard-coded max= ----
-// The max= attributes above are the defaults of webservice/config.py; a deployment that
+// ---- input limits come from the server through GET /api/limits ----
+// The max= attributes above are the defaults of webservice/config.py. A deployment that
 // raises a WEBSVC_MAX_* variable is reflected here on page load. On any failure the
 // hard-coded bounds stay, and the server clamps anyway.
 async function applyServerLimits() {
@@ -1448,9 +1436,8 @@ async function applyServerLimits() {
     if (!Number.isFinite(v)) continue;
     const el = document.getElementById(id);
     el.max = String(v);
-    // The shipped default may exceed this deployment's ceiling (300 s default vs a 120 s
-    // ceiling on the public instance): show the ceiling rather than a value the server
-    // would clamp with a notice on every submit.
+    // The default may exceed this deployment's limit, 300 s against a 120 s limit on the
+    // public instance. Show the limit.
     if (parseFloat(el.value) > v) el.value = String(v);
     const hint = document.querySelector('label[for="' + id + '"] .hint');
     if (hint) {
@@ -1461,15 +1448,15 @@ async function applyServerLimits() {
 }
 
 
-// ---- local persistence: inputs + results survive reloads and re-logins -------------
-// Everything stays in THIS browser's localStorage (same origin, so an Access re-login does
-// not clear it; another browser or device starts empty). Two keys:
+// ---- local persistence, so inputs and results survive reloads and re-logins ---------
+// Everything stays in this browser's localStorage, which is per origin, so an Access
+// re-login does not clear it and another browser or device starts empty. Two keys:
 //   ampzip.form.v1     the main panel's inputs as last submitted or typed
 //   ampzip.history.v1  the last HIST_MAX finished main-panel jobs (request + results), newest
 //                      first, capped at HIST_BYTES in total (oldest dropped first)
 // A reload restores the inputs and shows the newest saved results unless a job of this tab
-// is still running (the reconnect code above then owns the panel). Nothing here talks to
-// the server; the server's in-memory job store is unchanged.
+// is still running, in which case the reconnect code above owns the panel. Nothing here
+// talks to the server, and the server's in-memory job store is unchanged.
 const FORM_KEY = 'ampzip.form.v1', HIST_KEY = 'ampzip.history.v1';
 const HIST_MAX = 20, HIST_BYTES = 4 * 1024 * 1024;
 const FORM_IDS = ['npoint', 'mode', 'patience', 'gbfs_max_apps', 'gbfs_max_seconds',
@@ -1498,8 +1485,8 @@ function writeForm(f) {
     if (el.type === 'checkbox') el.checked = !!v; else el.value = String(v);
   }
 }
-// A job recovered after a reload has no form snapshot; rebuild one from the request the
-// server echoes back (n_point there is the resolved value, so "auto" is not recoverable).
+// A job recovered after a reload has no form snapshot, so one is rebuilt from the request
+// the server echoes back. n_point there is the resolved value, so auto is not recoverable.
 function formFromRequest(req) {
   if (!req) return null;
   const f = { expr: req.expr || '', algos: req.algorithms || [], fields: {} };
@@ -1565,7 +1552,7 @@ document.getElementById('historyClear').addEventListener('click', () => {
   statusEl.textContent = 'saved runs forgotten';
 });
 
-// keep the inputs current as they are typed or toggled
+// Keep the inputs current as they are typed or toggled.
 let _formTimer = null;
 exprEl.addEventListener('input', () => { clearTimeout(_formTimer); _formTimer = setTimeout(saveForm, 300); });
 document.querySelectorAll('.algo').forEach(c => c.addEventListener('change', saveForm));

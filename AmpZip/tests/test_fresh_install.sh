@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fresh-install gate: build the wheel, install it into an empty venv with the web extra, and
 # check that the command line, the search family and the web service work without torch and
-# without the upstream packages, while the learned backends report themselves unavailable.
+# without the research packages, while the neural baselines report themselves unavailable.
 #
 #   bash tests/test_fresh_install.sh            # builds both wheels (needs a Rust toolchain)
 #   WHEELS=dist bash tests/test_fresh_install.sh  # reuse wheels already in dist/
@@ -29,7 +29,7 @@ PY="$TMP/venv/bin/python"
 WHEEL="$(realpath "$WHEEL")"; ENGINE_WHEEL="$(realpath "$ENGINE_WHEEL")"
 cd "$TMP"
 
-echo "[fresh] the package comes from the venv, not the checkout:"
+echo "[fresh] the package comes from the venv:"
 "$PY" -c "import ampzip, ampzip_engine; print('  ', ampzip.__file__); assert '/venv/' in ampzip.__file__ and '/venv/' in ampzip_engine.__file__"
 
 echo "[fresh] torch must not be installed:"
@@ -43,7 +43,7 @@ OUT="$("$TMP/venv/bin/ampzip" --expr "ab(1,2)**4/(ab(1,2)*ab(2,3)*ab(3,4)*ab(4,1
         --algorithms model_free_gbfs --log-dir "$TMP/logs")"
 echo "$OUT" | grep -q "model_free_gbfs" || { echo "no gbfs result"; exit 1; }
 
-echo "[fresh] learned backends are unavailable, not a crash:"
+echo "[fresh] learned backends report themselves unavailable:"
 "$PY" - <<'EOF'
 from ampzip.simplifier.runner import available_algorithms, list_algorithms
 avail = set(available_algorithms())
@@ -67,6 +67,19 @@ curl -fs http://127.0.0.1:18765/healthz; echo
 JOB="$(curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: application/json' \
       -d '{"expr":"ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))","algorithms":["model_free_gbfs"]}')"
 echo "  submitted: $JOB"
+
+echo "[fresh] Compare numerically works without the research packages:"
+numcheck() {
+    curl -fs -X POST http://127.0.0.1:18765/api/numerical_check -H 'content-type: application/json' \
+        -d "{\"A\":\"$1\",\"B\":\"$2\",\"n_point\":4}" \
+    | "$PY" -c "import json,sys; print(json.load(sys.stdin)['check_status'])"
+}
+[[ "$(numcheck 'ab(1,2)' 'ab(1,2)')" == matched ]] || { echo "equal inputs not matched"; exit 1; }
+[[ "$(numcheck 'ab(1,2)*sb(2,3)' 'ab(1,4)*sb(4,3)')" == mismatch ]] || { echo "unequal inputs not a mismatch"; exit 1; }
+[[ "$(numcheck '1/(ab(1,2)*sb(2,3)+ab(1,4)*sb(4,3))' '1')" == inconclusive ]] \
+    || { echo "vanishing denominator not inconclusive"; exit 1; }
+echo "  matched / mismatch / inconclusive OK"
+
 kill "$WEB" 2>/dev/null || true
 wait "$WEB" 2>/dev/null || true
 

@@ -52,11 +52,11 @@ Replace `<job_id>` with the ID returned by the submission request.
 | `POST /api/jobs/{job_id}/cancel` | Request job cancellation. |
 | `POST /api/numerical_check` | Compare two expressions numerically. |
 
-`POST /api/numerical_check` evaluates two expressions at two precomputed on-shell configurations using floating-point arithmetic. It returns `check_status` as `matched`, `mismatch`, or `inconclusive`. Singular or non-finite evaluations give `inconclusive`.
+`POST /api/numerical_check` compares two expressions with exact modular arithmetic at random on-shell points, through the verifier that checks GBFS results (`ampzip.verify.compare`). Integer and rational coefficients of any size are exact; `I` is mapped to a square root of -1 at primes p ≡ 1 (mod 4). It returns `check_status` as `matched`, `mismatch` or `inconclusive`. Inconclusive means too many sampled points were singular, for example a denominator that vanishes on shell.
 
-The `equiv` field is `true` for `matched` and `false` for `mismatch`. For `inconclusive`, both `equiv` and `rel_diff` are `null`.
+The `equiv` field is `true` for `matched`, `false` for `mismatch` and `null` for `inconclusive`. The `method` field describes the comparison that was run.
 
-A match provides numerical evidence of equality.
+A mismatch shows that the expressions differ. A match is probabilistic evidence of equality.
 
 ## Configuration
 

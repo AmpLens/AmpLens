@@ -7,7 +7,7 @@ Each simplification job passes through these stages in the following order:
       → safety.prescreen (char firewall, RCE guard)
       → atomize input notation
       → simplifier.validate (atom whitelist + size limits)
-      → clamp params to server ceilings
+      → clamp params to the server limits
       → select backends compatible with the input
       → enqueue job (bounded queue)
 
@@ -37,6 +37,7 @@ from .safety import UnsafeInputError, prescreen
 from .jobs import MANAGER, QueueFull
 
 import threading
+from dataclasses import asdict
 from contextlib import contextmanager
 
 import sympy as sp
@@ -239,6 +240,8 @@ def limits(email: str = Depends(require_email)) -> Dict[str, Any]:
         "gbfs_split_max_terms": CONFIG.max_gbfs_split_max_terms,
         "gbfs_c_cancel_max_terms": CONFIG.max_gbfs_c_cancel_max_terms,
         "algo_grace_s": CONFIG.algo_grace_s,
+        # Input limits shared with the CLI, checked before parsing.
+        "input_limits": asdict(CONFIG.input_limits),
         "post_timeout_s": CONFIG.post_timeout_s,
         "allowed_algorithms": list(CONFIG.allowed_algorithms),
     }
@@ -275,16 +278,11 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
         raise HTTPException(status_code=429,
                             detail=f"rate limit exceeded ({CONFIG.rate_per_min}/min)")
 
-    # 2) Prescreen before parsing. extended=True permits s()/chain() notation only
-    #    because the atomizer uses a restricted AST parser. It expands the notation
-    #    to ab/sb with opaque_den markers for supported denominator sums. Raw extended
-    #    input must not be passed to sympify.
+    # 2) Input rules and limits shared with the CLI, from ampzip.simplifier.input_limits.
     try:
-        prescreen(body.expr, max_chars=CONFIG.max_input_chars,
-                  max_digit_run=CONFIG.max_digit_run, extended=True)
+        prescreen(body.expr, CONFIG.input_limits)
         if body.target:
-            prescreen(body.target, max_chars=CONFIG.max_input_chars,
-                      max_digit_run=CONFIG.max_digit_run, extended=True)
+            prescreen(body.target, CONFIG.input_limits)
     except UnsafeInputError as e:
         audit.audit_reject(email=email, stage="safety", detail=e.reasons,
                            raw_input=body.expr)
@@ -337,7 +335,7 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
     notes: List[str] = []
     for field, change in clamps.items():
         if isinstance(change, list) and len(change) == 2:
-            notes.append(f"{field}: {change[0]} -> {change[1]} (server ceiling)")
+            notes.append(f"{field}: {change[0]} -> {change[1]} (server limit)")
         else:
             notes.append(f"{field}: {change}")
 
@@ -451,36 +449,56 @@ def _flat_subs(n_point: int, ab_cls, sb_cls) -> Dict[Any, Any]:
     brackets are antisymmetric: <ji> = -<ij>, so non-canonical inputs
     like ab(4,1) get mapped to -Symbol('ab14') here.
     """
-    subs: Dict[Any, Any] = {}
-    for i in range(1, n_point + 1):
-        for j in range(1, n_point + 1):
-            if i == j:
-                continue
-            lo, hi = (i, j) if i < j else (j, i)
-            sign = 1 if i < j else -1
-            subs[ab_cls(i, j)] = sign * sp.Symbol(f"ab{lo}{hi}")
-            subs[sb_cls(i, j)] = sign * sp.Symbol(f"sb{lo}{hi}")
-    return subs
+    from ampzip.verify import DEFAULT_K, DEFAULT_PRIMES, compare, equal
+
+    try:
+        verdict, info = compare(A_text, B_text, n_point, rng=rng)
+    except ValueError:
+        # An older engine cannot parse I. Evaluate the sympy expressions instead.
+        return _sympy_compare(A_text, B_text, n_point, rng)
+    method = (f"exact finite-field comparison at {info['k']} random on-shell points modulo "
+              f"each of the primes {', '.join(str(p) for p in info['primes'])}")
+    if info["has_I"]:
+        method += "; I is mapped to a square root of -1 mod p"
+    return verdict, method
 
 
-def _all_bracket_names(n_point: int) -> List[str]:
-    out: List[str] = []
-    for i in range(1, n_point + 1):
-        for j in range(i + 1, n_point + 1):
-            out.append(f"ab{i}{j}")
-            out.append(f"sb{i}{j}")
-    return out
+_GAUSSIAN_PRIMES = (2_147_483_629, 2_147_483_549)      # p = 1 (mod 4)
+
+
+def _sympy_compare(A_text: str, B_text: str, n_point: int, rng=None) -> Tuple[Optional[bool], str]:
+    from sympy.ntheory import sqrt_mod
+    from ampzip.simplifier.parse import parse_expr
+    from ampzip.simplifier.validate import _get_bracket_classes
+    from ampzip.verify import DEFAULT_K, DEFAULT_PRIMES, equal
+    from ampzip.verify.verifier import _strip_opaque_den
+
+    ab_cls, sb_cls = _get_bracket_classes()
+    local = {"ab": ab_cls, "sb": sb_cls, "I": sp.I, "opaque_den": sp.Function("opaque_den")}
+    A = _strip_opaque_den(parse_expr(A_text, local, lenient=True))
+    B = _strip_opaque_den(parse_expr(B_text, local, lenient=True))
+    method = f"exact finite-field comparison at {DEFAULT_K} random on-shell points modulo each of 2 primes"
+    try:
+        if not (A.has(sp.I) or B.has(sp.I)):
+            return equal(A, B, n_point, primes=DEFAULT_PRIMES, rng=rng, engine=False), method
+        method += "; I is mapped to a square root of -1 mod p"
+        for p in _GAUSSIAN_PRIMES:
+            r = sp.Integer(sqrt_mod(-1, p))
+            if not equal(A.subs(sp.I, r), B.subs(sp.I, r), n_point, primes=(p,), rng=rng, engine=False):
+                return False, method
+        return True, method
+    except RuntimeError:
+        return None, method
 
 
 @app.post("/api/numerical_check")
 def numerical_check(body: NumCheckRequest,
                     email: str = Depends(require_email)) -> Dict[str, Any]:
-    """Compare values at two precomputed on-shell configurations (tolerance 2e-9).
+    """Compare A and B exactly mod p at random on-shell points.
 
-    check_status is matched, mismatch, or inconclusive; equiv is a compatibility
-    boolean for a finite numerical comparison and None for an inconclusive one.
-    These floating-point results do not prove an algebraic identity or inequality.
-    Input and program errors remain HTTP errors. n_point ∈ {4,5,6}.
+    check_status is matched, mismatch or inconclusive, and equiv True, False or None. A
+    mismatch is certain; a match is probabilistic evidence. Inconclusive means too many
+    sampled points were singular. Input and program errors remain HTTP errors.
     """
     # 1) rate limit (cheap, shared with /api/jobs)
     if not LIMITER.allow(email):
@@ -489,13 +507,10 @@ def numerical_check(body: NumCheckRequest,
         raise HTTPException(status_code=429,
                             detail=f"rate limit exceeded ({CONFIG.rate_per_min}/min)")
 
-    # 2) Prescreen both expressions. As in /api/jobs, extended=True relies on the
-    #    atomizer's restricted AST parser. Raw extended input is never passed to sympify.
+    # 2) Input rules and limits, as in /api/jobs.
     try:
-        prescreen(body.A, max_chars=CONFIG.max_input_chars,
-                  max_digit_run=CONFIG.max_digit_run, extended=True)
-        prescreen(body.B, max_chars=CONFIG.max_input_chars,
-                  max_digit_run=CONFIG.max_digit_run, extended=True)
+        prescreen(body.A, CONFIG.input_limits)
+        prescreen(body.B, CONFIG.input_limits)
     except UnsafeInputError as e:
         audit.audit_reject(email=email, stage="safety", detail=e.reasons,
                            raw_input=f"A={body.A!r} B={body.B!r}"[:200])
