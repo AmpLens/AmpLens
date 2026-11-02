@@ -35,10 +35,9 @@ from .limits import (
 )
 
 
-# Registry of backends: name -> (module, class). Backends are imported on first use, so the
-# training-free gbfs family runs on an install without torch or the SFT/CDS packages; the two
-# learned backends are optional extras and report themselves unavailable instead of breaking
-# the import of this module.
+# The registry of backends, name -> (module, class). Backends are imported on first use, so
+# the gbfs family runs on an install without torch or the SFT and CDS packages, and the two
+# neural baselines are optional extras that report themselves unavailable.
 _REGISTRY = {
     "sft_greedy": (".algorithms.sft_greedy", "SFTGreedy"),
     "sft_best_of_n": (".algorithms.sft_beam", "SFTBeam"),
@@ -50,7 +49,7 @@ _REGISTRY = {
     "gbfs_f": (".algorithms.gbfs_f", "GBFSVersionF"),
 }
 
-# Backends that need the optional extras (torch, and the SFT/CDS packages fetched separately).
+# Backends that need the optional extras, torch and the separately fetched SFT and CDS packages.
 OPTIONAL_BACKENDS = ("sft_greedy", "sft_best_of_n", "cds_oneshot")
 
 def list_algorithms() -> List[str]:
@@ -62,7 +61,7 @@ def is_known(name: str) -> bool:
 
 
 def backend_class(name: str):
-    """Import and return the backend class; ImportError if its extras are missing."""
+    """Import and return the backend class. Raises ImportError if its extras are missing."""
     if name not in _REGISTRY:
         raise ValueError(f"unknown algorithm '{name}'; available: {list_algorithms()}")
     module, cls = _REGISTRY[name]
@@ -76,7 +75,7 @@ def available_algorithms() -> List[str]:
         try:
             backend_class(name)
             out.append(name)
-        except Exception:  # noqa: BLE001  (missing torch / upstream packages)
+        except Exception:  # noqa: BLE001  missing torch or research packages
             continue
     return out
 
@@ -144,9 +143,9 @@ def _algo_kwargs_for(
     return {}
 
 
-# The gbfs family — all share the fast Rust engine and can consume opaque_den. Public (imported
-# by cli.py and webservice/app.py for the opaque-denominator router, so there is ONE source of
-# truth for "which algorithms are gbfs"); `_GBFS_FAMILY` is kept as a backward-compatible alias.
+# The gbfs family, which shares the engine and accepts opaque_den. cli.py and webservice/app.py
+# import it for the sum-denominator router, so there is one source for which algorithms are
+# gbfs. `_GBFS_FAMILY` is kept as a backward-compatible alias.
 GBFS_FAMILY = ("model_free_gbfs", "gbfs_c", "gbfs_d", "gbfs_e", "gbfs_f")
 _GBFS_FAMILY = GBFS_FAMILY
 
@@ -159,25 +158,25 @@ def is_gbfs(name: str) -> bool:
 # accepts the argument through `**kwargs` but does not use it.
 _CANCELLABLE = GBFS_FAMILY + ("sft_greedy", "sft_best_of_n")
 
-# The grace added on top of each algorithm's OWN wall-clock budget before the parallel
-# collector stops waiting for it is a parameter of run_all (`algo_grace_s`; CLI
-# `--algo-grace-seconds`, web `WEBSVC_ALGO_GRACE_S`). Each backend already self-bounds, so the
-# collector deadline is a safety net; a backend that overruns it still has its result
-# delivered (marked `overran`) if it finishes before run_all returns.
+# The grace added on top of each algorithm's own wall-clock budget before the parallel
+# collector stops waiting for it is the run_all parameter `algo_grace_s`, set by the CLI's
+# `--algo-grace-seconds` and the web's `WEBSVC_ALGO_GRACE_S`. Each backend bounds itself,
+# and a backend that overruns the collector deadline still has its result delivered, marked
+# `overran`, if it finishes before run_all returns.
 
-# How long the parallel collector waits per slice while an algorithm is still QUEUED in
-# the pool (more algorithms than workers). Only a liveness poll — the queue wait is never
-# charged against the algorithm's own budget — so it just needs to be short enough that a
-# start is noticed promptly and long enough not to spin.
+# How long the parallel collector waits per slice while an algorithm is still queued in the
+# pool, when there are more algorithms than workers. The queue wait is not charged against
+# the algorithm's own budget, so the slice is short enough that a start is noticed promptly
+# and long enough not to spin.
 _START_POLL_S = 0.25
 
 
 class _CombinedStop:
-    """Stop signal handed to one algorithm as its `cancel_event`. `is_set()` is True when
-    EITHER the shared job-level cancel (the web 'Stop' button) OR this algorithm's own
-    per-run event (set on its individual wall-clock timeout) is set — so job-cancel
-    broadcasts to every algorithm while a single-algorithm timeout stops only that one.
-    Backends only ever call `.is_set()` on their cancel_event (see gbfs.py, sft_*.py)."""
+    """The stop signal handed to one algorithm as its `cancel_event`. `is_set()` is True when
+    the shared job-level cancel, the web page's Stop button, or this algorithm's own per-run
+    event, set on its individual wall-clock timeout, is set. A job cancel thus broadcasts to
+    every algorithm while a single-algorithm timeout stops only that one. Backends only call
+    `.is_set()` on their cancel_event, as gbfs.py and sft_*.py do."""
     __slots__ = ("_job", "_own")
 
     def __init__(self, job_cancel, own_event: threading.Event):
@@ -198,23 +197,23 @@ class _CombinedStop:
         return None
 
 
-# Backends whose `solved` without a target is exactly "fewer brackets than the input"; the
-# report-side recount re-derives it for them. The others carry a further condition (CDS's
-# numerical match, the per-term drivers' no-progress guard), so the recount can only withdraw.
+# Backends whose `solved` without a target means exactly fewer brackets than the input. The
+# report-side recount re-derives it for them. The others carry a further condition, CDS's
+# numerical match or the per-term drivers' no-progress guard, so the recount can only withdraw.
 _COUNT_ONLY_SOLVED = frozenset({"model_free_gbfs", "gbfs_c", "gbfs_d", "sft_greedy", "sft_best_of_n"})
 
 
 def _report_counts(r: AlgorithmResult, start_str: str, has_target: bool, max_terms: int) -> None:
-    """Replace the reported bracket counts by the display count (`display_bracket_count`: the
-    factored numerator count) for the input, the final and the minimal form and every
-    derivation row. The backends' own counts (whole-tree, denominator included) move to
-    `extra["backend_bracket_count_*"]`; their search and candidate selection are untouched.
-    Without a target, `solved` follows the new counts (see `_COUNT_ONLY_SOLVED`). An
-    uncountable form gives -1 and is never compared."""
+    """Replace the reported bracket counts by the display count of `display_bracket_count`,
+    the factored numerator count, for the input, the final and the minimal form and every
+    derivation row. The backends' own counts, over the whole tree with the denominator, move
+    to `extra["backend_bracket_count_*"]`, and their search and candidate selection are
+    untouched. Without a target, `solved` follows the new counts for the backends in
+    `_COUNT_ONLY_SOLVED`. An uncountable form gives -1 and is never compared."""
     from .algorithms._post import display_bracket_count
 
     if not r.final_expr_str:
-        return                                   # an error placeholder: nothing to count
+        return                                   # an error placeholder, nothing to count
     r.extra["backend_bracket_count_start"] = r.bracket_count_start
     r.extra["backend_bracket_count_final"] = r.bracket_count_final
     r.extra["backend_bracket_count_min"] = r.bracket_count_min
@@ -231,10 +230,10 @@ def _report_counts(r: AlgorithmResult, start_str: str, has_target: bool, max_ter
             row["brackets_before"], row["brackets_after"] = prev, after
             if after >= 0:
                 prev = after
-    # The backend's own final and minimal forms before post-processing, in the same unit:
-    # `raw_final_expr` / `raw_min_expr` when the backend saved them (SFT keeps both; the
-    # search family and CDS save one form, which is both), else the last derivation row;
-    # a key that cannot be restated is dropped so no stale whole-tree number remains.
+    # The backend's own final and minimal forms before post-processing, in the same unit. They
+    # are `raw_final_expr` and `raw_min_expr` when the backend saved them, SFT keeping both
+    # while the search family and CDS save one form that is both, else the last derivation
+    # row. A key that cannot be restated is dropped.
     last_row = rows[-1]["brackets_after"] if rows and rows[-1].get("brackets_after", -1) >= 0 else None
     raw_final = raw_min = None
     if r.extra.get("raw_final_expr"):
@@ -263,12 +262,12 @@ def _report_counts(r: AlgorithmResult, start_str: str, has_target: bool, max_ter
 def _judge_target(r: AlgorithmResult, target_str: str, n_point: int, criterion: str,
                   max_terms: int) -> None:
     """One target-relative `solved` for every backend, the rule the search family applies
-    inside its own run: the simplest form reported (`min_expr`, else `final_expr`) must equal
-    the target over finite fields and meet `criterion` on the engine's raw numerator counts
-    (`brackets`: bracket count at or below the target's; `brackets-and-terms`: term count too;
-    `none`: equality alone). The search family is left as judged by its run (same functions,
-    same fields); the learned backends get the same verdict here.
-    `extra` carries `target_equal`, the counts and any note."""
+    inside its own run. The simplest form reported, `min_expr` or else `final_expr`, must
+    equal the target over finite fields and meet `criterion` on the engine's raw numerator
+    counts. `brackets` asks for a bracket count at or below the target's, `brackets-and-terms`
+    for the term count too, and `none` for equality alone. The search family is left as
+    judged by its run with the same functions and fields, and the neural baselines get the
+    same verdict here. `extra` carries `target_equal`, the counts and any note."""
     if is_gbfs(r.algorithm) or not r.final_expr_str:
         return
     from .algorithms._post import judge_solved
@@ -320,17 +319,18 @@ def run_all(
     gbfs_audit_steps: bool = False,
     gbfs_split_max_terms: int = DEFAULT_GBFS_SPLIT_MAX_TERMS,
     gbfs_c_cancel_max_terms: int = DEFAULT_GBFS_C_CANCEL_MAX_TERMS,
-    # bound on the sympy post-processing / recounts of every backend's output
+    # The bound on the sympy post-processing and recounts of every backend's output.
     post_timeout_s: Optional[float] = DEFAULT_POST_TIMEOUT_S,
-    # grace on top of a backend's own budget before the parallel collector stops waiting
+    # The grace on top of a backend's own budget before the parallel collector stops waiting.
     algo_grace_s: float = DEFAULT_ALGO_GRACE_S,
     # Cooperative cancellation via threading.Event. GBFS checks it between search
     # operations. SFT checks it between rollout steps and, for best-of-N, between
     # rollouts. CDS decoding does not use this event.
     cancel_event=None,
-    # ORIGINAL pre-atomize input string. Used by the per-term drivers (gbfs_e / gbfs_f) to split
-    # by the original additive terms BEFORE the atomizer combines them over a common denominator;
-    # every other backend ignores it. None -> the driver falls back to an expr-level split.
+    # The original input string before atomization. The per-term drivers gbfs_e and gbfs_f
+    # split it by its additive terms before the atomizer combines them over a common
+    # denominator. Every other backend ignores it. With None the driver falls back to an
+    # expression-level split.
     raw_input: Optional[str] = None,
     # At most `max_parallel` backends run concurrently. Additional backends wait for
     # a worker, and this queueing time does not count toward their individual time
@@ -339,19 +339,18 @@ def run_all(
     # overhead. The default, 1, runs them sequentially in input order. The web
     # service passes `CONFIG.max_parallel_algos`.
     max_parallel: int = DEFAULT_MAX_PARALLEL_ALGOS,
-    # Optional progressive sink: on_result(index, AlgorithmResult) is invoked exactly once
-    # per algorithm the instant it finishes (natural completion or per-algo timeout), so a
-    # caller can surface first-done results before the whole batch returns. `index` is the
+    # The optional progressive sink on_result(index, AlgorithmResult) is invoked exactly once
+    # per algorithm the instant it finishes, by completion or per-algorithm timeout, so a
+    # caller can surface the first results before the whole batch returns. `index` is the
     # algorithm's position in `algorithm_names`. Exceptions in the sink are swallowed.
     on_result: Optional[Callable[[int, AlgorithmResult], None]] = None,
 ) -> List[AlgorithmResult]:
-    """Run every requested algorithm and return their results IN INPUT ORDER."""
+    """Run every requested algorithm and return their results in input order."""
 
     def _run_one(name: str, algo_cancel) -> AlgorithmResult:
-        """Construct + run a single backend and fold in the display reconstruction.
-        Identical to the old per-name loop body; `algo_cancel` is the cancel_event this
-        backend sees (the shared job event in sequential mode, a per-algo _CombinedStop
-        in parallel mode)."""
+        """Construct and run a single backend and fold in the display reconstruction.
+        `algo_cancel` is the cancel_event this backend sees, the shared job event in
+        sequential mode and a per-algorithm _CombinedStop in parallel mode."""
         kwargs = _algo_kwargs_for(
             name,
             sft_beam_size=sft_beam_size,
@@ -374,7 +373,7 @@ def run_all(
         )
         try:
             algo = get_algorithm(name, **kwargs)
-        except Exception as e:  # noqa: BLE001 — an optional backend whose extras are not installed
+        except Exception as e:  # noqa: BLE001  an optional backend whose extras are not installed
             return AlgorithmResult(
                 algorithm=name,
                 final_expr_str="",
@@ -402,11 +401,11 @@ def run_all(
         # CDS accepts it through `**kwargs` but ignores it and is excluded here.
         if name in _CANCELLABLE:
             run_kwargs["cancel_event"] = algo_cancel
-        # The per-term drivers (gbfs_e / gbfs_f) split the ORIGINAL additive terms before the
-        # common denominator, so they need the raw pre-atomize string. Gate on the class flag,
-        # not the name, so any future driver opts in by setting wants_raw_input=True (other
-        # backends have no use for it). Missing this on gbfs_f silently degrades it to a whole-
-        # expression search on opaque input (raw_split_skipped=="no_raw_input" is the tell).
+        # The per-term drivers gbfs_e and gbfs_f split the original additive terms before the
+        # common denominator, so they need the raw string from before atomization. The class
+        # flag wants_raw_input=True gates it, so any future driver opts in the same way. Without
+        # it gbfs_f degrades to a whole-expression search on a sum-denominator input, which
+        # raw_split_skipped=="no_raw_input" reveals.
         if getattr(algo, "wants_raw_input", False):
             run_kwargs["raw_input"] = raw_input
         try:
@@ -424,18 +423,18 @@ def run_all(
                 duration_s=0.0,
                 extra={"error": f"{type(e).__name__}: {e}"},
             )
-        # Reconstructor (display-only): fold atomic ab/sb output back into s()/chain()
-        # notation. Never re-runs a backend; failures are non-fatal (keep atomic form).
+        # The display-only reconstructor folds atomic ab/sb output back into s() and chain()
+        # notation. A failure keeps the atomic form.
         try:
             from .reconstruct import reconstruct
-            # gbfs_f asks for the leading -1/A*(B/C + D/E) prefactor spelling; every other backend
-            # keeps the default (shape is NEVER sniffed — see reconstruct()'s docstring).
+            # gbfs_f asks for the leading -1/A*(B/C + D/E) prefactor spelling. Every other backend
+            # keeps the default.
             _pf = (name == "gbfs_f")
             if r.final_expr_str:
                 r.extra["reconstructed_final"] = reconstruct(r.final_expr_str, prefactor=_pf)
             if r.min_expr_str:
                 r.extra["reconstructed_min"] = reconstruct(r.min_expr_str, prefactor=_pf)
-        except Exception:  # noqa: BLE001  (display sugar must never break a result)
+        except Exception:  # noqa: BLE001  the result keeps its atomic form
             pass
         _report_counts(r, str(expr), has_target=(target is not None), max_terms=gbfs_max_terms)
         if target is not None:
@@ -450,10 +449,10 @@ def run_all(
         if on_result is not None:
             try:
                 on_result(i, res)
-            except Exception:  # noqa: BLE001 — a sink error must never break the run
+            except Exception:  # noqa: BLE001  a sink error is ignored
                 pass
 
-    # --- sequential path (default; CLI) — behavior identical to the old loop ----------
+    # --- sequential path, the CLI default ---------------------------------------------
     if max_parallel <= 1 or len(algorithm_names) <= 1:
         out = []
         for i, name in enumerate(algorithm_names):
@@ -464,16 +463,16 @@ def run_all(
 
     # --- parallel path -----------------------------------------------------------------
     def _budget(name: str) -> float:
-        """Per-algorithm wall-clock budget derived from the front-end params (the same
-        bound each backend enforces internally): gbfs family = gbfs_max_seconds;
-        everything else (sft/cds) = sample_timeout.
+        """The per-algorithm wall-clock budget derived from the request parameters, the same
+        bound each backend enforces internally. It is gbfs_max_seconds for the gbfs family
+        and sample_timeout for SFT and CDS.
 
-        gbfs is deliberately NOT also capped by sample_timeout. sample_timeout is the
-        SFT/CDS per-sample rollout budget; folding it in silently overrode the user's
-        explicit gbfs_max_seconds whenever it was the smaller of the two (the web UI
-        exposes gbfs_max_seconds but not sample_timeout, so a raised gbfs budget had no
-        effect past sample_timeout's default). The overall job stays bounded by the
-        caller's own ceiling (the web service's job_timeout_s)."""
+        sample_timeout does not apply to gbfs. It is the SFT and CDS per-sample rollout
+        budget, and folding it in once overrode the user's explicit gbfs_max_seconds
+        whenever it was the smaller of the two. The web page exposes gbfs_max_seconds and
+        hides sample_timeout, so a raised gbfs budget then had no effect past
+        sample_timeout's default. The overall job stays bounded by the caller's own limit,
+        the web service's job_timeout_s."""
         if is_gbfs(name):
             return gbfs_max_seconds
         return sample_timeout
@@ -483,8 +482,8 @@ def run_all(
     results: List[Optional[AlgorithmResult]] = [None] * n
     workers = min(max_parallel, n)
 
-    # Publish each index exactly once — whichever fires first wins (natural completion via
-    # the done-callback, out of order, OR a timeout/error placeholder from the collector).
+    # Publish each index exactly once. Whichever fires first wins, completion through the
+    # done callback out of order, or a timeout or error placeholder from the collector.
     _published = [False] * n
     _pub_lock = threading.Lock()
 
@@ -496,15 +495,15 @@ def run_all(
         _publish(i, res)
 
     def _make_done_cb(i: int):
-        # Fires the instant future i completes (in the pool thread), so a fast backend's
-        # result is surfaced immediately even while the in-order collector still waits on
-        # an earlier, slower one. Cancelled/errored futures are left to the collector.
+        # Fires in the pool thread the instant future i completes, so a fast backend's result
+        # is surfaced immediately even while the in-order collector still waits on an earlier,
+        # slower one. Cancelled and errored futures are left to the collector.
         def _cb(fut) -> None:
             if fut.cancelled():
                 return
             try:
                 r = fut.result()
-            except Exception:  # noqa: BLE001 — collector emits the error placeholder
+            except Exception:  # noqa: BLE001  the collector emits the error placeholder
                 return
             _publish_once(i, r)
         return _cb
@@ -516,12 +515,12 @@ def run_all(
     ex = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="algo")
     try:
         t_submit = time.monotonic()
-        # Wall-clock instant each algorithm actually BEGAN running, filled in by the pool
-        # thread. The pool only runs `workers` at a time, so with more algorithms than
-        # workers the tail ones sit in the queue first; timing them from t_submit charged
-        # them for that wait and could expire their deadline before they ever started
-        # (6 gbfs variants at max_parallel=4 => the last 2 timed out on arrival). Each
-        # deadline is therefore anchored to its own start instant.
+        # The wall-clock instant each algorithm began running, filled in by the pool thread.
+        # The pool only runs `workers` at a time, so with more algorithms than workers the
+        # tail ones sit in the queue first. Timing them from t_submit charged them for that
+        # wait and could expire their deadline before they started, as happened to the last
+        # two of six gbfs variants at max_parallel=4. Each deadline is therefore anchored to
+        # its own start instant.
         starts: List[Optional[float]] = [None] * n
 
         def _timed(idx: int, name: str):
@@ -540,22 +539,22 @@ def run_all(
             try:
                 while True:
                     st = starts[i]
-                    # Queued (no worker free yet): poll in short slices so the wait is
-                    # never charged against this algorithm's own budget. Running: wait
+                    # While queued with no worker free, poll in short slices so the wait is
+                    # never charged against this algorithm's own budget. Once running, wait
                     # out the remainder of the budget measured from its start instant.
                     wait = (_START_POLL_S if st is None
                             else max(0.0, st + budget - time.monotonic()))
                     try:
                         results[i] = futs[i].result(timeout=wait)
-                        break            # completed; already surfaced by the done-callback
+                        break            # completed and already surfaced by the done callback
                     except FutureTimeout:
                         st = starts[i]
                         if st is not None and time.monotonic() >= st + budget:
                             expired = True
                             break
-                        # Still queued, or it started while we were waiting — go around
-                        # and re-derive the deadline from the real start instant.
-            except Exception as e:  # noqa: BLE001 — a backend crash must not sink the job
+                        # Still queued, or it started during the wait. Go around and re-derive
+                        # the deadline from the real start instant.
+            except Exception as e:  # noqa: BLE001  a backend crash becomes an error result
                 results[i] = AlgorithmResult(
                     algorithm=name,
                     final_expr_str="",
@@ -572,7 +571,7 @@ def run_all(
                 continue
             if not expired:
                 continue
-            stops[i].set()   # nudge the still-running backend to stop (best-so-far)
+            stops[i].set()   # ask the still-running backend to stop with its best form so far
             results[i] = AlgorithmResult(
                 algorithm=name,
                 final_expr_str="",
@@ -591,7 +590,7 @@ def run_all(
             _publish_once(i, results[i])
             expired_idx.append(i)
         # A backend that overran its collector deadline but finished before this call returns
-        # still has a real answer: deliver it (marked) instead of the empty placeholder.
+        # still has a real answer. Deliver it, marked.
         for i in expired_idx:
             if futs[i].done() and not futs[i].cancelled():
                 try:

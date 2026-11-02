@@ -1,5 +1,5 @@
 """The reported bracket count is the factored numerator count, for every backend and every
-derivation row; the backends' internal counts are untouched.
+derivation row, and the backends' internal counts are untouched.
 
     python tests/test_display_count.py
 """
@@ -71,10 +71,10 @@ def main():
                "derivation row restated and chained")
         prev = row["brackets_after"]
     _check(r.extra["raw_bracket_count_min"] == rows[-1]["brackets_after"],
-           "raw_bracket_count_min equals the last derivation row (front-end prefix match)")
+           "raw_bracket_count_min equals the last derivation row, which the page matches on")
     _check(r.solved == (r.bracket_count_min < r.bracket_count_start), "solved follows the display count")
 
-    # -1 is never compared: an uncountable final form leaves solved alone
+    # An uncountable final form, -1, leaves solved alone.
     fake = AlgorithmResult(algorithm="model_free_gbfs", final_expr_str="ab(1,2", bracket_count_start=9,
                            bracket_count_final=1, bracket_count_min=1, n_steps=1, solved=True,
                            timed_out=False, duration_s=0.0)

@@ -2,7 +2,7 @@
 
 The suites (test_atomize / test_reconstruct / test_gbfs_f) accumulate failures into a module
 `_fails` list and return 1 from main() if non-empty, else 0. Historically pytest collected zero
-items from them (assertions live in main(), not in test_ functions), so `pytest` was vacuously
+items from them (assertions live in main()), so `pytest` was vacuously
 green. These wrappers make the gate REAL: pytest goes RED if any suite reports a failure. This
 file does not modify the suites' own logic.
 """

@@ -5,11 +5,11 @@ checkpoints and CDS datasets are checked against stored SHA-256 digests.
 
 Layout after `ampzip fetch-backends --cds`:
 
-    <dest>/                       davidshih17/RL_amplitudes_claude @ RL_COMMIT (+ the patch)
-    <dest>/models/sft_*pt_500k/   the SFT checkpoints, tracked upstream
+    <dest>/                       davidshih17/RL_amplitudes_claude @ RL_COMMIT, patched
+    <dest>/models/sft_*pt_500k/   the SFT checkpoints, tracked in that repository
     <dest>/spinorhelicity/        aureliendersy/spinorhelicity @ SH_COMMIT
-    <dest>/spinorhelicity/*.pth   the three CDS checkpoints (with --cds)
-    <dest>/spinorhelicity/data/n{4,5,6}_i1_3/data.prefix.counts.test_1000   (with --cds-data)
+    <dest>/spinorhelicity/*.pth   the three CDS checkpoints, with --cds
+    <dest>/spinorhelicity/data/n{4,5,6}_i1_3/data.prefix.counts.test_1000   with --cds-data
 
 The destination defaults to AMPZIP_BACKENDS or the user data directory from _paths.py.
 """
@@ -36,7 +36,7 @@ SH_COMMIT = "6057a838d2bea6b5fd6324d2182ae7fbe676fa5e"
 PATCH = Path(__file__).with_name("patches") / "sft_eval_extensions.patch"
 MARKER = ".ampzip-backends.json"
 
-# The three files the patch touches, at RL_COMMIT (before) and after the patch.
+# The three files the patch touches, at RL_COMMIT before and after the patch.
 SFT_EVAL_SHA256 = {
     "src/eval_sft_4pt.py": ("aa212944a9323e4c23716e9109097a7bcebc950b5bf37a10ab7d73fc8eca2a27",
                             "fbde9ed8aa676b02a49e648e1821ad6085f80a6332478ba87b203d1307629750"),
@@ -46,7 +46,7 @@ SFT_EVAL_SHA256 = {
                             "ac86286183e3cc9e150ab3fc30c03aeea3f103361b8e79a38e1bfc77342c4452"),
 }
 
-# CDS checkpoints: file name -> (Google Drive id from the spinorhelicity README, sha256, bytes).
+# The CDS checkpoints by file name, with the Google Drive id from the spinorhelicity README, sha256 and bytes.
 CDS_WEIGHTS = {
     "n4_i1_3_l1000_10Mex.pth": ("1lq46Hc_eF8khsoC4k-lsMjZpaY0Pco29",
                                 "befd35656f09b9e729ed1d11c04d6e7974ba2fa712e0213ea781996ffbca8710", 296900245),
@@ -57,8 +57,9 @@ CDS_WEIGHTS = {
 }
 
 
-# CDS dataset archives: n -> (Google Drive id from the spinorhelicity README, zip sha256, zip
-# bytes, member holding the test split, test-split sha256). Only the test split is kept.
+# The CDS dataset archives by n, with the Google Drive id from the spinorhelicity README, zip
+# sha256, zip bytes, the member holding the test split and the test-split sha256. Only the
+# test split is kept.
 CDS_DATA = {
     4: ("18idYRLv1Kzt4dcGS7s5YYONAbMsQTxD9",
         "347868658d6cfeda0db98aec48ad10080275309cf2b06e33bdcb35c8128d9584", 438247637,
@@ -110,7 +111,7 @@ def default_dest() -> Path:
 
 
 def clone_pinned(url: str, commit: str, dest: Path, what: str) -> None:
-    """Clone `url` into `dest` (or reuse an existing clone) and check out `commit`, detached."""
+    """Clone `url` into `dest`, or reuse an existing clone, and check out `commit` detached."""
     if (dest / ".git").exists() or (dest / ".git").is_file():
         head = _head(dest)
         if head.startswith(commit) or commit.startswith(head[: len(commit)]):
@@ -174,9 +175,9 @@ def fetch_cds_weights(sh_dir: Path, force: bool = False) -> List[str]:
 
 
 def fetch_cds_data(sh_dir: Path, zips_dir: Optional[Path] = None) -> List[int]:
-    """Put the CDS test split for n = 4, 5, 6 under sh_dir/data/; verify archive and file digests.
+    """Put the CDS test split for n = 4, 5, 6 under sh_dir/data/ and verify the archive and file digests.
 
-    Archives are read from `zips_dir` when given (any copy of the authors' zips), otherwise
+    Archives are read from `zips_dir` when given, any copy of the authors' zips, and otherwise
     downloaded to a temporary directory that is removed afterwards."""
     import tempfile
     import zipfile

@@ -1,4 +1,4 @@
-"""Every server-side adjustment of a request is reported back; n_point accepts 'auto'."""
+"""Every server-side adjustment of a request is reported back, and n_point accepts 'auto'."""
 import os, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -24,7 +24,7 @@ def test_clamps():
     assert cl["gbfs_den_aware"] == [True, False]
     r = c.post("/api/jobs", json={"expr": "ab(1,2)*sb(3,4)/2 + ab(1,3)*sb(2,4)", "algorithms": ["model_free_gbfs"]})
     assert r.status_code == 422 and "LIMIT_ENGINE_COEFF" in r.text
-    # the old "0 = engine default" spelling must not become a one-term cap
+    # The old "0 = engine default" spelling stays the engine default.
     from ampzip.simplifier.limits import DEFAULT_GBFS_MAX_TERMS
     r = c.post("/api/jobs", json={"expr": "ab(1,2)*sb(3,4) + ab(1,3)*sb(2,4)", "algorithms": ["model_free_gbfs"],
                                   "gbfs_max_apps": 100, "gbfs_max_terms": 0})

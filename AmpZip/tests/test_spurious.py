@@ -9,7 +9,7 @@ physical poles. The tests require certification for BCFW -> local and rejection
 for local -> BCFW. Controls at n=4 and n=5 cover removable and physical poles,
 as well as degenerate pole factors that vanish identically on shell.
 
-Needs the ampzip_engine Rust extension; skipped (not failed) if it can't import.
+Needs the ampzip_engine extension, and is skipped when it cannot be imported.
 """
 import os
 import sys
@@ -22,7 +22,7 @@ import ampzip.simplifier._paths  # noqa: F401,E402
 
 N = 6
 
-# 3-term form: physical poles only (s_612, s_561 plus a monomial denominator).
+# The 3-term form with physical poles only, s_612 and s_561 over a monomial denominator.
 LOCAL = (
     "(s(1,2,3)*sb(1,2)*sb(2,3)*ab(4,5)*ab(5,6)"
     "*chain('as',6,[1,2],3)*chain('as',4,[2,3],1))"
@@ -54,7 +54,7 @@ def _check(cond, msg):
 
 
 def test_decomposition():
-    """The engine puts the two BCFW terms over one denominator; the whole gap to the
+    """The engine puts the two BCFW terms over one denominator, and the whole gap to the
     local form is a single extra sum-pole."""
     print("(1) rational-function decomposition")
     from ampzip.search.spurious import ratfn_parts
@@ -83,7 +83,7 @@ def test_blind_detection():
 
 
 def test_certificate():
-    """BCFW -> local certifies; the reverse (which ADDS a pole) must not."""
+    """BCFW -> local certifies, and the reverse, which adds a pole, does not."""
     print("(3) cancellation certificate")
     from ampzip.search.spurious import certify_cancellation
     c = certify_cancellation(BCFW, LOCAL, N, k=4)
@@ -95,11 +95,11 @@ def test_certificate():
 
     r = certify_cancellation(LOCAL, BCFW, N, k=4)
     _check(r.dropped == () and r.quotient_ok is None and r.values_equal is True and not r.ok,
-           "local -> BCFW (adds a pole) is correctly NOT certified")
+           "local -> BCFW (adds a pole) is left uncertified")
 
 
 def test_generic_n():
-    """The machinery is not tuned to the 6pt fixture: small controls at n=4 and n=5."""
+    """Small controls at n=4 and n=5, beyond the 6-point fixture."""
     print("(4) generic n")
     from ampzip.search.spurious import certify_cancellation, is_spurious, ratfn_parts
 

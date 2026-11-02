@@ -24,18 +24,18 @@ from ..simplifier.limits import DEFAULT_GBFS_MAX_TERMS
 @dataclass
 class JobRecord:
     job_id: str
-    email: str                       # owner (verified)
-    status: str = "queued"           # queued | running | done | error | timeout | cancelled
+    email: str                       # the verified owner
+    status: str = "queued"           # queued, running, done, error, timeout or cancelled
     created_at: float = 0.0
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
-    request: Dict[str, Any] = field(default_factory=dict)   # clamped params
+    request: Dict[str, Any] = field(default_factory=dict)   # the clamped params
     results: Optional[List[Dict[str, Any]]] = None          # AlgorithmResult dicts
     error: Optional[str] = None
-    # Progressive results: one slot per requested algorithm (in request order), filled
-    # in as each backend finishes so the UI can show the first-done result immediately
-    # and a skeleton + live timer for the still-running ones. Each slot:
-    #   {"algorithm": name, "status": "running"|"done", "finished_at": ts|None, "result": dict|None}
+    # Progressive results, one slot per requested algorithm in request order, filled in as
+    # each backend finishes so the page can show the first result immediately and a skeleton
+    # with a live timer for the still-running ones. Each slot is
+    # {"algorithm": name, "status": "running" or "done", "finished_at": ts or None, "result": dict or None}.
     partial: Optional[List[Dict[str, Any]]] = None
     _partial_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     # Cooperative cancellation event set by JobManager.cancel(). GBFS and SFT check
@@ -65,11 +65,11 @@ class JobRecord:
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
-            # Server clock at response time. The client anchors the running-skeleton timer
-            # to (server_now - started_at) so the displayed elapsed is the TRUE time since
-            # the job started — correct across page reloads/reconnects and immune to
-            # client/server clock skew (it never uses the browser's own wall clock as the
-            # start reference). Job-level: applies to every algorithm's skeleton uniformly.
+            # The server clock at response time. The client anchors the running-skeleton timer
+            # to server_now - started_at so the displayed elapsed is the time since the job
+            # started, the same across page reloads and reconnects and independent of clock skew
+            # between client and server, since the browser's own clock is not the start
+            # reference. It is job-level and applies to every algorithm's skeleton.
             "server_now": time.time(),
             "finished_at": self.finished_at,
             "request": self.request,
@@ -83,23 +83,23 @@ class QueueFull(Exception):
     pass
 
 
-# Statuses at which a job is finished and its record may be evicted from the store.
-# (queued/running are LIVE and must never be evicted.)
+# The statuses at which a job is finished and its record may be evicted from the store.
+# Queued and running jobs are live and are never evicted.
 _TERMINAL_STATUSES = frozenset({"done", "error", "timeout", "cancelled"})
 
 
 def _execute(req: Dict[str, Any], cancel_event=None, on_result=None) -> List[Dict[str, Any]]:
-    """Build sympy exprs from the (already prescreened + validated) request and
-    run the requested backends. Imports are local so torch/sympy load lazily.
+    """Build sympy exprs from the checked and validated request and run the requested
+    backends. Imports are local so torch and sympy load lazily.
 
-    `on_result(index, AlgorithmResult)` (optional) is invoked as each backend finishes
-    so the caller can publish progressive results before the whole job completes."""
-    # Test seam: exercise the queue/timeout/cancel without importing torch. Never
-    # set by app.py (not part of the clamped request) so it is unreachable via HTTP.
+    The optional `on_result(index, AlgorithmResult)` is invoked as each backend finishes so
+    the caller can publish progressive results before the whole job completes."""
+    # A test seam that exercises the queue, timeout and cancel without importing torch. app.py
+    # does not set it and it is no part of the clamped request, so HTTP cannot reach it.
     if "_test_sleep" in req:
         dur = float(req["_test_sleep"])
         waited = 0.0
-        while waited < dur:                     # poll so cancel is observable in tests
+        while waited < dur:                     # polled so a cancel is observable in tests
             if cancel_event is not None and cancel_event.is_set():
                 break
             time.sleep(min(0.05, dur - waited))
@@ -140,7 +140,7 @@ def _execute(req: Dict[str, Any], cancel_event=None, on_result=None) -> List[Dic
         cds_length_penalty=req["cds_length_penalty"],
         gbfs_max_apps=req["gbfs_max_apps"],
         gbfs_max_seconds=req["gbfs_max_seconds"],
-        # a saved request from before 2026-10-20 may carry 0 ("engine default"): same value, explicit
+        # An older saved request may carry 0 for the engine default, the same value made explicit.
         gbfs_max_terms=req.get("gbfs_max_terms") or DEFAULT_GBFS_MAX_TERMS,
         gbfs_den_aware=req.get("gbfs_den_aware", False),
         gbfs_ordering=req.get("gbfs_ordering", "factored"),
@@ -151,26 +151,26 @@ def _execute(req: Dict[str, Any], cancel_event=None, on_result=None) -> List[Dic
         gbfs_c_cancel_max_terms=req.get("gbfs_c_cancel_max_terms", 1200),
         post_timeout_s=CONFIG.post_timeout_s,
         algo_grace_s=CONFIG.algo_grace_s,
-        raw_input=req.get("raw_input"),   # gbfs_e: split by original additive terms
-        on_result=on_result,              # progressive publish as each backend finishes
-        # Run the requested algorithms concurrently (up to the cap) so the job wall-clock
-        # is ~max(per-algo budget), not the sum. Each algo still honors its own front-end
-        # timeout via run_all's per-algo deadline. See runner.run_all.
+        raw_input=req.get("raw_input"),   # for gbfs_e's split by original additive terms
+        on_result=on_result,              # progressive publishing as each backend finishes
+        # Run the requested algorithms concurrently up to the cap, so the job wall clock is
+        # about the largest per-algorithm budget. Each algorithm still honours its own timeout
+        # through run_all's per-algorithm deadline.
         max_parallel=CONFIG.max_parallel_algos,
     )
     return [r.to_dict() for r in results]
 
 
 class JobManager:
-    """Owns the worker pool + the job store. One instance per process."""
+    """Owns the worker pool and the job store. One instance per process."""
 
     def __init__(self) -> None:
-        # max_workers IS the concurrency cap; excess submissions queue here.
+        # max_workers is the concurrency cap. Excess submissions queue here.
         self._pool = ThreadPoolExecutor(max_workers=CONFIG.max_concurrent,
                                         thread_name_prefix="simp-job")
         self._jobs: Dict[str, JobRecord] = {}
         self._lock = threading.Lock()
-        self._inflight = 0  # queued + running
+        self._inflight = 0  # queued plus running
 
     # --- admission control ---------------------------------------------------
     def submit(self, email: str, clamped: Dict[str, Any]) -> JobRecord:
@@ -178,10 +178,9 @@ class JobManager:
             if self._inflight >= CONFIG.max_queue:
                 raise QueueFull(f"queue full ({self._inflight}/{CONFIG.max_queue})")
             self._inflight += 1
-            # Guarantee a UNIQUE id: a 64-bit truncation could (astronomically rarely)
-            # collide with a live job, and `self._jobs[id] = job` would then overwrite it —
-            # silently handing the old job's poller the new job's results (cross-talk).
-            # Regenerating on collision makes that structurally impossible.
+            # Guarantee a unique id. A 64-bit truncation could, astronomically rarely, collide
+            # with a live job, and `self._jobs[id] = job` would then overwrite it and hand the
+            # old job's poller the new job's results. Regenerating on collision rules that out.
             job_id = uuid.uuid4().hex[:16]
             while job_id in self._jobs:
                 job_id = uuid.uuid4().hex[:16]
@@ -194,37 +193,36 @@ class JobManager:
             self._jobs[job.job_id] = job
             self._evict_terminal_over_cap_locked()
 
-        # Pre-seed one progressive slot per requested algorithm (in request order) so the
-        # client can render skeletons + live timers immediately, before any backend finishes.
+        # Pre-seed one progressive slot per requested algorithm in request order, so the
+        # client can render skeletons and live timers before any backend finishes.
         job.init_partial(list(clamped.get("algorithms", [])))
 
-        # Sink: publish each backend's result into the job the instant it finishes.
+        # The sink publishes each backend's result into the job the instant it finishes.
         def _on_result(index: int, algo_result) -> None:
             try:
                 job.set_partial(index, algo_result.to_dict(), time.time())
-            except Exception:  # noqa: BLE001 — progressive publish must never sink a job
+            except Exception:  # noqa: BLE001  a publishing error is ignored
                 pass
 
         fut = self._pool.submit(_execute, job.request, job.cancel_event, _on_result)
-        # One lightweight supervisor thread per job — mostly blocked on result.
+        # One lightweight supervisor thread per job, mostly blocked on the result.
         t = threading.Thread(target=self._supervise, args=(job, fut),
                              name=f"supervise-{job.job_id}", daemon=True)
         t.start()
         return job
 
     def _evict_terminal_over_cap_locked(self) -> None:
-        """Bound the in-memory job store (caller MUST hold self._lock). If it exceeds
-        CONFIG.max_jobs, drop the OLDEST TERMINAL jobs first — NEVER a queued/running job,
-        which is still live and being polled. A client polling an evicted (finished) job
-        gets a 404 and re-runs: a failure, never a wrong result. Non-terminal jobs are
-        separately bounded by max_queue (<= 32), so enough terminal jobs always exist to
-        get back to the cap. Evicting oldest-finished-first means a just-completed result
-        is never the one dropped."""
+        """Bound the in-memory job store. The caller holds self._lock. If the store exceeds
+        CONFIG.max_jobs, the oldest finished jobs are dropped first, and queued or running
+        jobs, still live and polled, stay. A client polling an evicted job gets a 404 and
+        re-runs. Unfinished jobs are separately bounded by max_queue, at most 32, so enough
+        finished jobs exist to get back under the cap. Evicting the oldest finished first
+        keeps a just-completed result."""
         overflow = len(self._jobs) - CONFIG.max_jobs
         if overflow <= 0:
             return
         terminal = [j for j in self._jobs.values() if j.status in _TERMINAL_STATUSES]
-        # oldest first: by finish time, falling back to creation time
+        # The oldest first, by finish time and then by creation time.
         terminal.sort(key=lambda j: (j.finished_at or j.created_at or 0.0))
         for j in terminal[:overflow]:
             self._jobs.pop(j.job_id, None)
@@ -251,7 +249,7 @@ class JobManager:
 
     # --- per-job supervisor --------------------------------------------------
     def _supervise(self, job: JobRecord, fut) -> None:
-        job.status = "running"   # approximate: may still be queued in the pool
+        job.status = "running"   # approximate, since it may still be queued in the pool
         job.started_at = time.time()
         try:
             results = fut.result(timeout=CONFIG.job_timeout_s)
@@ -265,7 +263,7 @@ class JobManager:
             job.status = "timeout"
             job.error = (f"job exceeded WEBSVC_JOB_TIMEOUT_S ({CONFIG.job_timeout_s:.0f} s), "
                          "and background computation may continue")
-        except Exception as e:  # noqa: BLE001 — surface any backend failure
+        except Exception as e:  # noqa: BLE001  surface any backend failure
             job.status = "error"
             job.error = f"{type(e).__name__}: {e}"
         finally:

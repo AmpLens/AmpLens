@@ -2,14 +2,14 @@
 #
 # Created by:  cloudflared tunnel create ampzip
 # The create step writes credentials to ~/.cloudflared/<TUNNEL_ID>.json and
-# prints the tunnel id — paste it below.
+# prints the tunnel id. Paste it below.
 
 tunnel: <TUNNEL_ID>
 credentials-file: /home/<user>/.cloudflared/<TUNNEL_ID>.json
 
-# Outbound-only: cloudflared dials Cloudflare's edge; nothing listens publicly here.
+# Outbound only. cloudflared dials Cloudflare's edge, and nothing listens publicly here.
 ingress:
-  # Public hostname → the local webservice. Use a NEW subdomain not already used
+  # The public hostname of the local webservice. Use a new subdomain not already used
   # by your other server.
   - hostname: simp.YOURDOMAIN.com
     service: http://127.0.0.1:8000

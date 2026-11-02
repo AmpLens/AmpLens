@@ -1,4 +1,4 @@
-"""The sympy post-processing is bounded and reports a timeout instead of hanging."""
+"""The sympy post-processing is bounded and reports a timeout."""
 import os, sys, time
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)

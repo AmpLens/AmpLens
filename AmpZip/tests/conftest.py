@@ -1,10 +1,9 @@
 """pytest bootstrap for the Simplifier test suite.
 
-Puts the Simplifier root (for `import ampzip.simplifier`, `ampzero`) and this tests/ dir (for
-`import test_atomize`) on sys.path, and — if the Rust engine / RL backend is not importable
-(e.g. a fresh clone without the built `ampzip_engine`) — cleanly SKIPS the whole suite by
-collection-ignore rather than erroring out. On the dev box the engine is present, so the
-suite runs and genuinely fails on a regression.
+It puts the package root, for `import ampzip.simplifier`, and this tests/ directory, for
+`import test_atomize`, on sys.path. When the engine is not importable, as in a fresh clone
+without the built `ampzip_engine`, it skips the whole suite through collection-ignore.
+With the engine present the suite runs and fails on a regression.
 """
 import os
 import sys
@@ -22,6 +21,6 @@ try:
 except Exception:  # noqa: BLE001
     _ENGINE_OK = False
 
-# If the engine/backend is unavailable, every test_*.py (which imports it at module load)
-# would raise a collection error — skip them all instead.
+# Without the engine every test_*.py, which imports it at module load, would raise a
+# collection error, so they are all skipped.
 collect_ignore_glob = [] if _ENGINE_OK else ["test_*.py"]

@@ -1,4 +1,4 @@
-"""Inputs the engine cannot represent are tagged (not failed) and routed away from the search."""
+"""Inputs the engine cannot represent are tagged, pass validation and are routed away from the search."""
 import os, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)

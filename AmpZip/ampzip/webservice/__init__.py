@@ -1,25 +1,24 @@
-"""AmpZip — public-facing web service (the *exposed* module).
+"""The AmpZip web service, the one module that faces the public internet.
 
-This is the ONLY module that touches the public internet and untrusted input.
-It is a thin, hardened wrapper around the trusted `simplifier` package:
+It is a thin wrapper around the `simplifier` package, which handles only input the service
+has checked.
 
     public user
-       │  (Google email login)
-    [Cloudflare Access]   ── email-whitelist auth + DDoS + WAF + hides origin IP
-       │  signed JWT, via cloudflared tunnel → 127.0.0.1
-    ┌───────────────── webservice (UNTRUSTED zone) ─────────────────┐
-    │  auth.py     — verify Access JWT signature + email allowlist   │
-    │  safety.py   — pre-sympify char whitelist (RCE guard)          │
-    │  jobs.py     — bounded queue: concurrency / timeout / caps     │
+       │  Google email login
+    [Cloudflare Access]   email allowlist, DDoS and WAF protection, hidden origin IP
+       │  signed JWT, via the cloudflared tunnel to 127.0.0.1
+    ┌───────────────── webservice, untrusted input ──────────────────┐
+    │  auth.py     verifies the Access JWT signature and the allowlist │
+    │  safety.py   applies the input limits before parsing             │
+    │  jobs.py     bounds the queue, concurrency and timeouts          │
     └───────────────────────────┬───────────────────────────────────┘
-                                │ only sanitized input crosses
-                    [ simplifier package (TRUSTED) ]  — pure simplification
+                                │ checked input only
+                    [ simplifier package ]   the simplification itself
 
-Trust-boundary rule: every request must pass auth → safety → validate →
-param-clamp BEFORE any backend runs. `simplifier` never imports anything from
-`webservice`; the dependency edge is strictly webservice → simplifier.
+Every request passes authentication, the input limits, validation and parameter clamping
+before any backend runs. `simplifier` never imports anything from `webservice`.
 
-Run:  python -m ampzip.webservice           (binds 127.0.0.1; put cloudflared in front)
+Run `python -m ampzip.webservice`. It binds 127.0.0.1, with cloudflared in front.
 """
 
 from .._version import __version__  # noqa: F401

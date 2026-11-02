@@ -1,9 +1,9 @@
-"""Tests for gbfs_f — per-term decomposition + no-inflation guard + prefactor display.
+"""Tests for gbfs_f, the per-term decomposition with the no-inflation guard and the prefactor display.
 
-Standalone runnable (no pytest):  python tests/test_gbfs_f.py
+Run with python tests/test_gbfs_f.py.
 
-Tests 1-4 are pure sympy (no engine). Tests 5-8 exercise the full backend via run_all and
-need the ampzip_engine Rust extension — they are skipped (not failed) if it can't import.
+Tests 1-4 are pure sympy. Tests 5-8 exercise the full backend through run_all and need the
+ampzip_engine extension, and are skipped when it cannot be imported.
 
 At recombination, `gbfs_f` selects the smallest of its four candidates under the
 internal `count_brackets` metric. Its selected count is therefore no greater than
@@ -41,14 +41,14 @@ EQ528 = ("(chain('as',6,[1,2],3)**3)/(ab(6,1)*ab(1,2)*sb(3,4)*sb(4,5)*s(6,1,2)"
          "*sb(6,1)*s(5,6,1)*chain('as',2,[6,1],5))")
 
 
-# --- Tests 1-4: the recombination guard, no engine needed --------------------------------- #
+# --- Tests 1-4, the recombination guard, with no engine needed ---------------------------- #
 def test_recombine_guard():
-    """The 4-candidate min, and the two theorems (f<=all_searched, f<=input)."""
-    print("Recombination guard (pure sympy):")
+    """The four-candidate minimum and the two theorems f<=all_searched and f<=input."""
+    print("Recombination guard, pure sympy:")
     f = GBFSVersionF()
 
-    # (2) f <= all_searched — the measured counterexample where a per-piece-only guard gives 9
-    # but the whole-result min must give 6. D is the factor common to both original pieces.
+    # (2) f <= all_searched, the measured counterexample where a per-piece-only guard gives 9
+    # and the whole-result minimum gives 6. D is the factor common to both original pieces.
     D = ab(1, 2) * ab(2, 3) * ab(3, 4) * ab(4, 5)
     orig = [ab(5, 6) ** 4, D * ab(1, 4) * ab(1, 5) * ab(1, 6)]
     searched = [D * ab(1, 3), D * ab(1, 4)]
@@ -63,16 +63,16 @@ def test_recombine_guard():
     _check(count_brackets(best) <= cand["input"],
            f"f <= input theorem ({count_brackets(best)} <= {cand['input']})")
 
-    # (4) (e)'s _recombine is the identity + empty guard_extra — the inertness lock.
+    # (4) gbfs_e's _recombine is the identity with an empty guard_extra.
     e = GBFSVersionE()
     x = ab(1, 2) * sb(3, 4)
     eb, eextra = e._recombine(x, [x], [x], x)
     _check(eb == x and eextra == {}, "GBFSVersionE._recombine is identity, guard_extra == {}")
 
 
-# --- Tests 5,7: display (reconstruct only, no engine) -------------------------------------- #
+# --- Tests 5 and 7, the display through reconstruct alone --------------------------------- #
 def test_display_prefactor():
-    """gbfs_f's prefactor spelling vs (e)'s default two-story spelling, on the SAME expr."""
+    """gbfs_f's prefactor spelling and gbfs_e's default two-story spelling on the same expr."""
     print("Display (reconstruct opt-in):")
     # The gbfs_f winner on eq 5.28 is the input re-split (both pieces search-rejected). Build it
     # directly so this test needs no engine.
@@ -103,13 +103,13 @@ def test_display_prefactor():
     _check(" - chain(" not in rec_pf.split("*(", 1)[1],
            "prefactor=True inner sum is all-'+' (no inner minus)")
 
-    # (7) the (e)-inertness lock: the SAME expr with prefactor=False (the default every other
-    # backend uses) keeps the two-story (...)/A spelling. This is the assertion that actually
-    # separates f from e — a startswith('-1/chain...') check alone would pass for neither here.
+    # (7) The same expr with prefactor=False, the default of every other backend, keeps the
+    # two-story (...)/A spelling. This assertion separates f from e, since a
+    # startswith('-1/chain...') check alone would pass for neither here.
     _check(rec_def.endswith(")/chain('as', 2, [1, 6], 5)"),
            f"prefactor=False keeps two-story (...)/A  (...{rec_def[-30:]})")
     _check(not rec_def.startswith("-1/chain"),
-           "prefactor=False does NOT use the prefactor spelling")
+           "prefactor=False keeps the plain spelling")
 
 
 # --- Tests 5,6: the full backend (needs the engine) --------------------------------------- #
@@ -118,13 +118,12 @@ def test_backend():
     try:
         from ampzip.search.gbfs import simplify as _  # noqa: F401
     except Exception as ex:  # noqa: BLE001
-        print(f"  [skip] ampzip_engine unavailable ({type(ex).__name__}) — skipping 5,6")
+        print(f"  [skip] ampzip_engine unavailable, {type(ex).__name__}, skipping 5 and 6")
         return
     from ampzip.simplifier.runner import run_all, list_algorithms
     if "gbfs_f" not in list_algorithms():
-        # The runner wiring (registration) may land in a later commit than the algorithm
-        # file; skip the end-to-end backend test until gbfs_f is registered.
-        print("  [skip] gbfs_f not registered yet (wiring not committed) — skipping 5,6")
+        # The end-to-end backend test needs gbfs_f registered with the runner.
+        print("  [skip] gbfs_f is not registered, skipping 5 and 6")
         return
     from ampzip.simplifier.atomize import atomize
     loc = {"ab": ab, "sb": sb, "opaque_den": sp.Function("opaque_den")}
@@ -132,8 +131,8 @@ def test_backend():
 
     r = run_all(["gbfs_f"], expr, 6, raw_input=EQ528,
                 gbfs_max_apps=3000, gbfs_max_seconds=90, sample_timeout=90)[0]
-    # The theorem is stated in the backend's own metric (whole expression, denominator
-    # included), which the runner keeps in extra["backend_bracket_count_*"]; the reported
+    # The theorem is stated in the backend's own count of the whole expression, denominator
+    # included, which the runner keeps in extra["backend_bracket_count_*"]. The reported
     # bracket_count_* fields are the factored numerator count.
     bf, bs = r.extra["backend_bracket_count_final"], r.extra["backend_bracket_count_start"]
     _check(bf == 48, f"eq 5.28 gbfs_f == 48 (got {bf})")
@@ -154,7 +153,7 @@ def test_backend():
     ef = e.extra["backend_bracket_count_final"]
     _check(bf <= ef, f"f <= e ({bf} <= {ef})")
     _check(bf <= bs, f"f <= start ({bf} <= {bs})")
-    # (5,7) gbfs_e display is UNCHANGED — the reconstructed string is still two-story.
+    # (5,7) The gbfs_e display is unchanged, the reconstructed string still two-story.
     _check(e.extra.get("reconstructed_min", "").endswith(")/chain('as', 2, [1, 6], 5)"),
            "gbfs_e display still two-story (a/b/d/e untouched)")
 

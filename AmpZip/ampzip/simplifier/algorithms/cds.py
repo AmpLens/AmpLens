@@ -1,15 +1,14 @@
-"""CDS backend — Dersy et al. seq2seq simplifier (arXiv 2408.04720).
+"""The CDS backend, the one-shot sequence-to-sequence simplifier of arXiv 2408.04720.
 
-Wraps spinorhelicity's `model.simplifier_methods.one_shot_simplify` — a single
-encoder-decoder pass with token-level beam search (or nucleus sampling). This is
-the same model + decoding mode that `src/eval_paper_model_{n}pt.py` runs over the
-test set (98.01% on 4pt). The iterative term-grouping mode
-(`contrastive_simplifier.total_simplification`) is intentionally not used here —
-it requires a separately-trained contrastive encoder and is only worthwhile for
-expressions too long to fit the seq2seq context window (2560 tokens).
+It wraps spinorhelicity's `model.simplifier_methods.one_shot_simplify`, a single
+encoder-decoder pass with token-level beam search or nucleus sampling, the model and decoding
+mode that `src/eval_paper_model_{n}pt.py` runs over the test set. The iterative term-grouping
+mode of `contrastive_simplifier.total_simplification` is left out. It requires a separately
+trained contrastive encoder and only pays off for expressions too long for the
+sequence-to-sequence context window of 2560 tokens.
 
-State: env + (encoder, decoder) are lazily constructed per n_point and cached.
-Each n_point load is ~300 MB of model weights.
+The env, encoder and decoder are constructed lazily per n_point and cached. Each n_point
+loads about 300 MB of model weights.
 """
 
 from __future__ import annotations
@@ -27,27 +26,27 @@ from .. import _paths
 from ..result import AlgorithmResult
 from ._post import count_brackets as _count_brackets, maybe_simplify
 
-_paths.assert_rl_repo_present()  # the upstream packages are fetched, not shipped
+_paths.assert_rl_repo_present()  # the research packages are fetched on the user's machine
 
 
 DEFAULT_BEAM_SIZE = 5
 DEFAULT_TEMPERATURE = 1.5
-DEFAULT_NUCLEUS_P = 0.0      # 0 = pure beam; >0 = nucleus sampling at this p
+DEFAULT_NUCLEUS_P = 0.0      # 0 is pure beam, and a positive value is nucleus sampling at this p
 DEFAULT_LENGTH_PENALTY = 1.0
 
-# Shipped CDS checkpoints (under spinorhelicity/)
+# The published CDS checkpoints, under spinorhelicity/
 _MODEL_FILE_PER_NPT = {
     4: "n4_i1_3_l1000_10Mex.pth",
     5: "n5_simplifier.pth",
     6: "n6_simplifier.pth",
 }
 
-# Max input sequence length the encoder can handle (n_max_positions).
+# The longest input sequence the encoder can handle, n_max_positions.
 CDS_MAX_INPUT_TOKENS = 2560
 
 
 def _ensure_apex_mock():
-    """spinorhelicity imports `apex` even when not training — mock it."""
+    """spinorhelicity imports `apex` even when not training, so it is mocked."""
     if "apex" in sys.modules:
         return
     apex = types.ModuleType("apex")
@@ -61,9 +60,9 @@ def _ensure_apex_mock():
 def _build_params(n_point: int, use_cuda: bool):
     """Mirror `src/eval_paper_model_{n}pt.py` parameters dict.
 
-    Most fields are required by `build_env` / `build_modules` even though we
-    bypass training. The model-architecture fields (emb_dim, n_*_layers, n_heads,
-    n_max_positions) MUST match what the shipped checkpoint expects.
+    Most fields are required by `build_env` and `build_modules` even though training is
+    bypassed. The model-architecture fields emb_dim, n_*_layers, n_heads and n_max_positions
+    must match the published checkpoint.
     """
     _ensure_apex_mock()
     from environment.utils import AttrDict
@@ -96,7 +95,7 @@ def _build_params(n_point: int, use_cuda: bool):
         "reduced_voc": True,
         "all_momenta": False,
 
-        # model (must match checkpoint exactly)
+        # the model, which must match the checkpoint exactly
         "emb_dim": 512,
         "n_enc_layers": 3,
         "n_dec_layers": 3,
@@ -109,7 +108,7 @@ def _build_params(n_point: int, use_cuda: bool):
         "positional_encoding": True,
         "reload_model": os.path.join(REPO_ROOT, "spinorhelicity", model_file),
 
-        # trainer (build_env / build_modules need these even though we don't train)
+        # the trainer settings, which build_env and build_modules need even without training
         "export_data": False,
         "reload_data": "spin_hel,{t},{v},{e}".format(
             t=os.path.join(REPO_ROOT, "spinorhelicity", "data", data_dir, "data.prefix.counts.train_1000"),
@@ -130,7 +129,7 @@ def _build_params(n_point: int, use_cuda: bool):
         "env_base_seed": -1,
         "batch_size": 32,
 
-        # evaluation defaults (per-call overrides handled below)
+        # evaluation defaults, with per-call overrides handled below
         "eval_only": True,
         "test_file": True,
         "valid_file": False,
@@ -146,7 +145,7 @@ def _build_params(n_point: int, use_cuda: bool):
         "temperature": 1.5,
         "scaling_eval": False,
 
-        # SLURM/GPU
+        # SLURM and GPU
         "cpu": not use_cuda,
         "local_rank": -1,
         "master_port": -1,
@@ -158,7 +157,7 @@ def _build_params(n_point: int, use_cuda: bool):
 
 
 class _LoadedCDSBackend:
-    """One per n_point — env + (encoder, decoder) + ab/sb classes for re-parsing."""
+    """One per n_point, holding the env, the encoder, the decoder and the ab/sb classes for re-parsing."""
 
     def __init__(self, n_point: int, use_cuda: bool):
         _ensure_apex_mock()
@@ -191,13 +190,13 @@ def _get_cds_backend(n_point: int, use_cuda: bool) -> _LoadedCDSBackend:
 def _reparse_in_env(expr, env):
     """Re-parse a sympy expression so its ab/sb atoms are the env's classes.
 
-    SFT-side ab/sb (from `environment.spin_helicity_env`) and CDS-side ab/sb
-    (from `environment.bracket_env`, registered in env.func_dict) are different
-    sympy Function classes. one_shot_simplify needs the env's flavor.
+    The SFT-side ab/sb of `environment.spin_helicity_env` and the CDS-side ab/sb of
+    `environment.bracket_env`, registered in env.func_dict, are different sympy Function
+    classes, and one_shot_simplify needs the env's.
 
-    Also calls `reorder_expr` to match the canonical ordering streamlit uses
-    via `simplifier_methods.load_equation` — the tokenizer is sensitive to
-    operand order on `Add` / `Mul`.
+    It also calls `reorder_expr` to match the canonical ordering of
+    `simplifier_methods.load_equation`, since the tokenizer is sensitive to the operand order
+    of `Add` and `Mul`.
     """
     from sympy.parsing.sympy_parser import (
         parse_expr,
@@ -218,10 +217,11 @@ def _reparse_in_env(expr, env):
 def _one_shot_simplify(envir, module_transfo, f_eq, params_in, length_penalty=1.0):
     """One encoder pass and one decode of `f_eq`, returning `[(matches, hyp, rel_diff)]`.
 
-    This is the upstream `model.simplifier_methods.one_shot_simplify` with the beam length
-    penalty exposed: upstream hard-codes `length_penalty=1`, which made `--cds-length-penalty`
-    an inert parameter. Everything else (encoding, greedy / beam / nucleus decoding, parsing
-    and the numerical check of each hypothesis) is the same code path, imported from upstream.
+    This is the research code's `model.simplifier_methods.one_shot_simplify` with the beam
+    length penalty exposed. The research code hard-codes `length_penalty=1`, which made
+    `--cds-length-penalty` inert. Everything else, the encoding, the greedy, beam and nucleus
+    decoding, the parsing and the numerical check of each hypothesis, is the same code path,
+    imported from the research code.
     """
     import torch
     from model import simplifier_methods as _sm
@@ -258,7 +258,7 @@ def _one_shot_simplify(envir, module_transfo, f_eq, params_in, length_penalty=1.
             npt = envir.npt_list[0] if len(envir.npt_list) == 1 else None
             matches, rel_diff = _sm.check_numerical_equiv_local(envir.special_tokens, hyp, f_sp, npt=npt)
             out_hyp.append((matches, hyp_disp, rel_diff))
-        except Exception:  # noqa: BLE001 - an unparsable hypothesis is skipped, as upstream does
+        except Exception:  # noqa: BLE001  an unparsable hypothesis is skipped, as the research code does
             pass
     return list(dict.fromkeys(out_hyp))
 
@@ -297,7 +297,7 @@ class CDS:
         sample_timeout: float = 120.0,
         capture_derivation: bool = False,
         simplify_mode: str = "none",
-        **kwargs,   # absorb orchestrator kwargs CDS ignores (sft_patience, cancel_event, …)
+        **kwargs,   # runner kwargs CDS ignores, such as sft_patience and cancel_event
     ) -> AlgorithmResult:
         start_brackets = _count_brackets(expr)
         t0 = time.time()
@@ -313,9 +313,9 @@ class CDS:
                 self.temperature,
             )
             # The decode is one forward pass plus beam search and cannot be interrupted. It is
-            # waited for at most `sample_timeout` seconds: on expiry the result reports a
-            # timeout and the decode runs on in its thread until it finishes (output discarded).
-            # So `sample_timeout` bounds the wait, not the computation; see docs/LIMITS.md.
+            # waited for at most `sample_timeout` seconds. On expiry the result reports a
+            # timeout and the decode runs on in its thread until it finishes, its output
+            # discarded. So `sample_timeout` bounds the wait, as docs/LIMITS.md says.
             box: dict = {}
 
             def _decode():
@@ -328,19 +328,19 @@ class CDS:
                             params_in,
                             length_penalty=self.length_penalty,
                         )
-                except BaseException as exc:  # noqa: BLE001  (re-raised in the caller)
+                except BaseException as exc:  # noqa: BLE001  re-raised in the caller
                     box["exc"] = exc
 
-            # Not a daemon thread: a torch decode still running when the interpreter exits
-            # aborts the process ("terminate called without an active exception"), so a CLI
-            # call that timed out prints its result and then exits once the decode is done.
+            # Not a daemon thread. A torch decode still running when the interpreter exits
+            # aborts the process, so a CLI call that timed out prints its result and then exits
+            # once the decode is done.
             th = threading.Thread(target=_decode, name="cds-decode", daemon=False)
             th.start()
             th.join(sample_timeout if sample_timeout and sample_timeout > 0 else None)
             if th.is_alive():
                 return AlgorithmResult(
                     algorithm=self.name,
-                    final_expr_str="",            # no form reported: nothing to count or judge
+                    final_expr_str="",            # no form reported, so nothing to count or judge
                     bracket_count_start=start_brackets,
                     bracket_count_final=-1,
                     bracket_count_min=-1,
@@ -352,8 +352,8 @@ class CDS:
                         "stop_reason": "time",
                         "sample_timeout_s": sample_timeout,
                         "decode_still_running": True,
-                        "note": "the decode exceeded sample_timeout; it cannot be interrupted and "
-                                "runs on in the background until it finishes (its output is discarded)",
+                        "note": "the decode exceeded sample_timeout. It cannot be interrupted and "
+                                "runs on in the background until it finishes, its output discarded",
                         "beam_size": self.beam_size,
                         "sample_method": self._sample_method(),
                     },
@@ -381,7 +381,7 @@ class CDS:
 
         duration = time.time() - t0
 
-        # Rank candidates: numerical match first, then lowest bracket count.
+        # Rank the candidates by numerical match first, then by lowest bracket count.
         scored = []
         for (matches, hyp_sp, rel_diff) in hypotheses:
             scored.append({
@@ -438,7 +438,7 @@ class CDS:
         return AlgorithmResult(
             algorithm=self.name,
             final_expr_str=final_str,
-            min_expr_str=final_str,         # CDS is single-step: min == final
+            min_expr_str=final_str,         # CDS is single-step, so min equals final
             bracket_count_start=start_brackets,
             bracket_count_final=bk_final,
             bracket_count_min=bk_final,

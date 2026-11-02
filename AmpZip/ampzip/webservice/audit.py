@@ -1,18 +1,17 @@
 """Append-only audit log for the exposed service.
 
-Each lifecycle event is recorded as one JSONL entry. A submission records the
-submitter, canonical expression and request parameters after clamping. Completion
-records a summary of the outcome.
-Mirrors the shape of `simplifier/log.py` but lives in a separate file,
-`webservice.jsonl` in the same log directory (`$WEBSVC_LOG_DIR`, else `$AMPZIP_LOG_DIR`,
-else the per-user log dir), and is keyed by the verified email.
+Each lifecycle event is recorded as one JSONL entry. A submission records the submitter,
+the canonical expression and the request parameters after clamping, and completion records
+a summary of the outcome. The log has the shape of `simplifier/log.py` but lives in its own
+file, `webservice.jsonl` in the same log directory, `$WEBSVC_LOG_DIR`, else
+`$AMPZIP_LOG_DIR`, else the per-user log dir, and is keyed by the verified email.
 
-Events:
-  - "submit"   : request accepted + enqueued (after auth/safety/validate/clamp)
-  - "finish"   : job reached a terminal state (done | error | timeout | cancelled)
-  - "reject"   : request refused at one of the stages listed in `audit_reject`
+A "submit" event is a request accepted and enqueued after authentication, the input check,
+validation and clamping. A "finish" event is a job that reached a terminal state, done,
+error, timeout or cancelled. A "reject" event is a request refused at one of the stages
+listed in `audit_reject`.
 
-Logging never raises into the request path — failures here are swallowed.
+A logging failure is swallowed and does not reach the request path.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ def _write(event: Dict[str, Any]) -> None:
         line = json.dumps(event, default=str, ensure_ascii=False)
         with _lock, open(_log_path(), "a", encoding="utf-8") as f:
             f.write(line + "\n")
-    except Exception:  # never break the request path on a logging failure
+    except Exception:  # a logging failure is swallowed
         pass
 
 
@@ -73,7 +72,7 @@ def audit_reject(*, email: Optional[str], stage: str, detail: Any,
         "email": email,
         "stage": stage,
         "detail": detail,
-        # Keep a truncated copy of what was attempted (useful for abuse triage).
+        # A truncated copy of what was attempted, for abuse triage.
         "raw_input": (raw_input[:500] if raw_input else None),
     })
 
@@ -81,7 +80,7 @@ def audit_reject(*, email: Optional[str], stage: str, detail: Any,
 def audit_finish(*, email: str, job_id: str, status: str,
                  duration_s: float, results: Any = None,
                  error: Optional[str] = None) -> None:
-    # Store a compact per-algorithm summary, not the full result blobs.
+    # Store a compact per-algorithm summary.
     summary = None
     if isinstance(results, list):
         summary = [

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Smoke tests for the simplifier CLI.
-# Validation tests (should FAIL with specific LIMIT_* tag) — no model load needed.
-# GBFS smoke test using the default backend (should succeed).
+# The validation tests fail with a specific LIMIT_* tag and load no model.
+# The gbfs smoke test uses the default backend and succeeds.
 
 set -u
 cd "$(dirname "$0")/.."

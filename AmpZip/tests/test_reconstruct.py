@@ -46,14 +46,14 @@ def _expect(expr, n, must_contain):
 def main():
     print("Priority s > ab/sb > Dirac:")
     # bare canonical ab(i,j)*sb(i,j) = <ij>[ij] = -s(i,j) under textbook s=<ij>[ji]
-    _expect(ab(1, 2) * sb(1, 2), 4, "-s(1, 2)")                 # pair -> -s, not a chain
-    _expect(ab(1, 2) * sb(2, 3), 4, "chain('as', 1, [2], 3)")   # shared index -> chain (unchanged)
-    # single-index chain: reconstruct canonicalises the spelling to 'as' with reversed legs
-    # (chain('as',3,[2],1) == chain('sa',1,[2],3), same object) — see commit d5117bf.
+    _expect(ab(1, 2) * sb(1, 2), 4, "-s(1, 2)")                 # pair -> -s
+    _expect(ab(1, 2) * sb(2, 3), 4, "chain('as', 1, [2], 3)")   # a shared index folds to a chain
+    # For a single-index chain reconstruct canonicalises the spelling to 'as' with reversed
+    # legs, since chain('as',3,[2],1) and chain('sa',1,[2],3) are the same object.
     _expect(sb(1, 2) * ab(2, 3), 4, "chain('as', 3, [2], 1)")
-    # s(1,2) folds; the shared-index leftover ab(2,3)*sb(2,4) also folds to a chain (v1 loose-pool).
-    # Under textbook s=<ij>[ji] (commit 0607811) the leading '-' is absorbed into the chain sign;
-    # the whole rendering is value-verified equal to the input.
+    # s(1,2) folds, and the shared-index leftover ab(2,3)*sb(2,4) also folds to a chain. Under
+    # the textbook s=<ij>[ji] the leading '-' is absorbed into the chain sign, and the whole
+    # rendering is verified equal to the input.
     _expect(ab(1, 2) * sb(1, 2) * ab(2, 3) * sb(2, 4), 4, "s(1, 2)*chain('as', 3, [2], 4)")
 
     print("Multi-particle s / single-channel chain / opaque_den fold:")
@@ -67,7 +67,7 @@ def main():
     _expect(sp.sympify(atomize("ab(1,2)/s(1,2,3)"), locals=_LOC), 6, "s(1, 2, 3)")
     _expect(sp.sympify(atomize("ab(1,2)/chain('as',2,[6,1],5)"), locals=_LOC), 6,
             "chain('as', 2, [1, 6], 5)")
-    # a bare top-level sum is NOT force-collapsed (rendered term-wise)
+    # a bare top-level sum is rendered term-wise
     _expect(ab(1, 2) * sb(1, 2) + ab(1, 3) * sb(1, 3), 6, "-s(1, 2) - s(1, 3)")
     # two reference six-point inputs: fully s()/chain() readable
     for ref in [
@@ -84,13 +84,11 @@ def main():
                 print(f"       [FAIL] unfolded {bad!r} leaked into {rec!r}")
                 _fails.append(zl)
 
-    # gbfs_f prefactor opt-in (the display lock): a sum-of-fractions over a common pole A renders
-    # as a leading `-1/A*(...)` ONLY when prefactor=True; the default (every other backend) keeps
-    # the two-story `(...)/A`. This is what makes the a/b/d/e-inertness a TEST, not an argument.
-    # Build the SPLIT form gbfs_f actually recombines (each raw term atomized SEPARATELY so it
-    # keeps its own denominator) — NOT the whole-string atomize, which sp.together's into one big
-    # fraction that has no sum-of-fractions-over-a-common-pole structure to hoist.
-    print("Prefactor opt-in (gbfs_f display):")
+    # A sum of fractions over a common pole A renders as a leading `-1/A*(...)` only with
+    # prefactor=True, which gbfs_f sets. The default of every other backend keeps the two-story
+    # `(...)/A`, which is what the test below checks. The split form gbfs_f recombines is built
+    # with each raw term atomized separately so it keeps its own denominator.
+    print("Prefactor opt-in, the gbfs_f display:")
     import ast as _ast  # noqa: E402
     _raw = ("(chain('as',6,[1,2],3)**3)/(ab(6,1)*ab(1,2)*sb(3,4)*sb(4,5)*s(6,1,2)"
             "*chain('as',2,[6,1],5))+(chain('as',4,[5,6],1)**3)/(ab(2,3)*ab(3,4)*sb(5,6)"
@@ -114,7 +112,7 @@ def main():
         (_rec_on.startswith("-1/chain('as', 2, [1, 6], 5)*("), "prefactor=True -> leading -1/A*("),
         (_rec_on.count("/chain('as', 2, [1, 6], 5)") == 1, "prefactor=True is single-story"),
         (_rec_off.endswith(")/chain('as', 2, [1, 6], 5)"), "prefactor=False keeps two-story (...)/A"),
-        (not _rec_off.startswith("-1/chain"), "prefactor=False does NOT prefactor (opt-in lock)"),
+        (not _rec_off.startswith("-1/chain"), "prefactor=False applies no prefactor (opt-in lock)"),
     ]:
         print(f"  [{'ok ' if cond else 'FAIL'}] {msg}")
         if not cond:

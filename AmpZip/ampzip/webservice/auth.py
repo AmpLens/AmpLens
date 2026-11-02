@@ -1,10 +1,11 @@
 """Authentication for the web service.
 
-  cloudflare : verify signed Cloudflare Access tokens.
-  basic      : verify HTTP Basic credentials against hashes in WEBSVC_BASIC_CREDS.
-  dev        : skip authentication for local use.
+The cloudflare mode verifies signed Cloudflare Access tokens, the basic mode verifies HTTP
+Basic credentials against the hashes in WEBSVC_BASIC_CREDS, and the dev mode skips
+authentication for local use.
 
-Returns the authenticated email for request handling. See docs/SECURITY.md#authentication for deployment settings.
+The authenticated email is returned for request handling. docs/SECURITY.md#authentication
+describes the deployment settings.
 
 The Cloudflare Access mode requires PyJWT[crypto].
 """
@@ -34,8 +35,8 @@ _jwks_client: Optional["PyJWKClient"] = None
 
 
 class AuthError(Exception):
-    """Auth failure carrying an HTTP status and optional response headers
-    (e.g. WWW-Authenticate to trigger the browser Basic-auth prompt)."""
+    """An authentication failure carrying an HTTP status and optional response headers, such
+    as WWW-Authenticate to trigger the browser's Basic-auth prompt."""
 
     def __init__(self, status: int, detail: str, headers: Optional[Dict[str, str]] = None):
         self.status = status
@@ -58,7 +59,7 @@ def verify_request_email(headers, client_ip: str = "?") -> str:
     raise AuthError(500, f"unknown WEBSVC_AUTH_MODE '{CONFIG.auth_mode}'")
 
 
-# --- interim HTTP Basic ------------------------------------------------------
+# --- HTTP Basic -------------------------------------------------------------
 _fails: Dict[str, Deque[float]] = defaultdict(deque)
 _fails_lock = threading.Lock()
 _BASIC_CHALLENGE = {"WWW-Authenticate": 'Basic realm="simplifier", charset="UTF-8"'}
@@ -88,7 +89,7 @@ def _verify_basic(headers, client_ip: str) -> str:
 
     raw = headers.get("Authorization") or headers.get("authorization")
     if not raw or not raw.lower().startswith("basic "):
-        # No credentials yet → challenge the browser to show its login dialog.
+        # No credentials yet, so the browser is challenged to show its login dialog.
         raise AuthError(401, "authentication required", headers=_BASIC_CHALLENGE)
 
     try:
@@ -100,8 +101,8 @@ def _verify_basic(headers, client_ip: str) -> str:
 
     email = username.strip().lower()
     stored = CONFIG.basic_creds.get(email)
-    # Always run verify (even when the email is unknown, against a dummy) to keep
-    # timing uniform and avoid leaking which emails exist.
+    # verify always runs, against a dummy hash when the email is unknown, to keep the timing
+    # uniform so the response does not reveal which emails exist.
     ok = verify_password(stored, password) if stored else verify_password(
         "pbkdf2_sha256$200000$00$00", password)
     if not stored or not ok:
@@ -111,7 +112,7 @@ def _verify_basic(headers, client_ip: str) -> str:
     return email
 
 
-# --- Cloudflare Access (unchanged) -------------------------------------------
+# --- Cloudflare Access ------------------------------------------------------
 def _certs_url() -> str:
     return f"https://{CONFIG.cf_team_domain}/cdn-cgi/access/certs"
 

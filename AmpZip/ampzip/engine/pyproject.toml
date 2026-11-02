@@ -22,8 +22,8 @@ classifiers = [
 Homepage = "https://github.com/AmpLens/AmpLens"
 
 [tool.maturin]
-# Pure-Rust extension; import name = the [lib] name in Cargo.toml: `ampzip_engine`.
-# extension-module is enabled for the wheel only (kept off for `cargo test`); abi3 gives one
-# wheel per platform for CPython 3.12 and later.
+# The import name is the [lib] name in Cargo.toml, `ampzip_engine`. extension-module is
+# enabled for the wheel only and kept off for `cargo test`. abi3 gives one wheel per platform
+# for CPython 3.12 and later.
 features = ["pyo3/extension-module", "pyo3/abi3-py312"]
 exclude = ["target/**"]

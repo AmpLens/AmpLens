@@ -1,7 +1,7 @@
-"""The package's own bracket atoms stand in for the upstream classes exactly, and the gbfs
-path runs with the upstream packages unimportable.
+"""The package's own bracket atoms stand in for the research package's classes exactly, and
+the gbfs path runs with the research packages unimportable.
 
-Run:  python tests/test_atoms.py   (or via tests/run_tests.py)
+Run:  python tests/test_atoms.py   or tests/run_tests.py
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from ampzip.simplifier.parse import parse_expr  # noqa: E402
 
 UPSTREAM = ("environment", "model", "training", "eval_sft_4pt", "eval_sft_5pt", "eval_sft_6pt",
             "action_space_4pt", "action_space_5pt", "action_space_6pt", "train_sft_transformer",
-            "torch")   # torch is an optional extra: only the learned backends need it
+            "torch")   # torch is an optional extra, which only the neural baselines need
 
 
 def _corpus(limit=None):
@@ -64,14 +64,14 @@ def test_latex_matches_upstream_spelling():
 
 
 def test_parity_with_upstream(limit=4000):
-    """Same str(), same canonical order, same LaTeX as the upstream classes, on stored strings.
-    Skipped when the upstream package is not present (it is not shipped)."""
+    """Same str(), same canonical order and same LaTeX as the research package's classes, on
+    stored strings. Skipped when the research package is absent."""
     try:
         import ampzip.simplifier._paths  # noqa: F401
         from environment.bracket_env import ab as uab, sb as usb
         from environment.utils import reorder_expr
     except ImportError:
-        print("       (upstream package absent; parity check skipped)")
+        print("       research package absent, parity check skipped")
         return
     ours, theirs = {"ab": ab, "sb": sb}, {"ab": uab, "sb": usb}
     bad = 0
@@ -112,7 +112,7 @@ assert validate(raw).ok
 from ampzip.simplifier.runner import available_algorithms, list_algorithms
 avail = available_algorithms()
 assert set(avail) == {a for a in list_algorithms() if a.startswith("gbfs") or a == "model_free_gbfs"}, avail
-(bad,) = run_all(["sft_greedy"], e, 4)        # requested but unavailable: an error result, not a crash
+(bad,) = run_all(["sft_greedy"], e, 4)        # requested but unavailable: an error result
 assert not bad.solved and "error" in (bad.extra or {}), bad
 assert not any(m.split(".")[0] in UPSTREAM for m in sys.modules), "an upstream module was imported"
 print("UPSTREAM-FREE OK", res.bracket_count_start, "->", res.bracket_count_min)
@@ -120,10 +120,10 @@ print("UPSTREAM-FREE OK", res.bracket_count_start, "->", res.bracket_count_min)
 
 
 def test_gbfs_path_without_upstream():
-    """validate -> atomize -> gbfs -> reconstruct in a fresh interpreter where the upstream
-    packages (environment / model / training / eval_sft_*) and torch cannot be imported; the
-    learned backends report themselves unavailable and a request for one yields an error
-    result rather than an exception."""
+    """validate -> atomize -> gbfs -> reconstruct in a fresh interpreter where the research
+    packages environment, model, training and eval_sft_* and torch cannot be imported. The
+    neural baselines report themselves unavailable and a request for one yields an error
+    result."""
     import subprocess
     code = _CHILD % (UPSTREAM, _ROOT)
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300,

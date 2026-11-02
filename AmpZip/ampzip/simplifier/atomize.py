@@ -1,28 +1,28 @@
-"""Atomizer — preprocess rich amplitude notation into atomic ab/sb.
+"""The atomizer, which turns rich amplitude notation into atomic ab/sb.
 
-A string-to-string transformation applied before `validate()`. The output uses
-`ab(i,j)` = <i j>, `sb(i,j)` = [i j], and `opaque_den(S)` for supported denominator
-sums. This keeps the s()/chain() expansion rules out of validation and search.
+It is a string-to-string transformation applied before `validate()`. The output uses
+`ab(i,j)` for <i j>, `sb(i,j)` for [i j] and `opaque_den(S)` for supported denominator
+sums, which keeps the s() and chain() expansion rules out of validation and search.
 
-Input notation accepted (in addition to native ab/sb):
+Besides native ab/sb, the input may use
 
-    s(i, j, ...)                      Mandelstam invariant  s_{ij...} = (p_i+...)^2
-    chain(type, a, M_1, ..., M_k, b)  Dirac chain; type in {'aa','as','sa','ss'},
-                                      a/b integer endpoints, each M_m a channel =
-                                      list of integer leg labels (e.g. [1,6] = p1+p6).
+    s(i, j, ...)                      the Mandelstam invariant s_{ij...} = (p_i+...)^2
+    chain(type, a, M_1, ..., M_k, b)  a Dirac chain with type one of 'aa', 'as', 'sa' and
+                                      'ss', integer endpoints a and b, and each M_m a
+                                      channel, a list of integer leg labels such as [1,6]
+                                      for p1+p6.
 
-The notation follows the textbook convention of Elvang-Huang and Dixon:
-`ab(i,j) = <ij>` and `sb(i,j) = [ij]`, with matching argument order.
-Mandelstam invariants and Dirac chains are defined as follows:
+The notation follows the textbook convention of Elvang and Huang and of Dixon, `ab(i,j) =
+<ij>` and `sb(i,j) = [ij]` with matching argument order. Mandelstam invariants and Dirac
+chains are
 
-    s_ij = <ij>[ji] = ab(i,j) * sb(j,i)              (REVERSED square-bracket args;
-                                                      = -ab(i,j)*sb(i,j) canonicalized)
-    chain('as',a,P,b) = <a|P|b] := CHAIN_SIGN * sum_{i in P} ab(a,i)*sb(i,b)
+    s_ij = <ij>[ji] = ab(i,j) * sb(j,i)
+    chain('as',a,P,b) = <a|P|b] = CHAIN_SIGN * sum_{i in P} ab(a,i)*sb(i,b)
 
-With `sb(i,j) = [ij]`, the Dirac chain's adjacent contraction ab(a,i)*sb(i,b) already
-IS the textbook <ai>[ib], so `CHAIN_SIGN = +1` is textbook-correct and chains need no
-sign. The index-reversal of the textbook Mandelstam lives entirely in `s()` (the
-sb(j,i) above). Do not move it onto the chain.
+The square-bracket arguments of s_ij are reversed, so it canonicalises to
+-ab(i,j)*sb(i,j). With `sb(i,j) = [ij]`, the Dirac chain's adjacent contraction
+ab(a,i)*sb(i,b) is the textbook <ai>[ib], so `CHAIN_SIGN = +1` follows the textbook and
+chains need no sign. The index reversal of the textbook Mandelstam lives in `s()` alone.
 
 With `allow_opaque_den=True`, denominator sums with positive integer powers are
 retained as `opaque_den(S)` factors. Other powers of denominator sums are rejected.
@@ -43,10 +43,9 @@ import sympy as sp
 
 from .parse import parse_tree, eval_tree, ParseError
 
-# Overall chain sign convention. With sb(i,j)=[ij], the adjacent contraction
-# ab(a,i)*sb(i,b) already equals the textbook <a|p_i|b] = <ai>[ib], so +1 is
-# textbook-correct (see module docstring). The Mandelstam index-reversal is carried
-# by s() alone, not here.
+# The chain sign convention. With sb(i,j)=[ij], the adjacent contraction ab(a,i)*sb(i,b)
+# equals the textbook <a|p_i|b] = <ai>[ib], so +1 follows the textbook. The Mandelstam index
+# reversal is carried by s() alone.
 CHAIN_SIGN = 1
 
 _ALLOWED_CALLS = frozenset({"s", "chain", "ab", "sb"})
@@ -64,33 +63,32 @@ def _get_bracket_classes():
     return bracket_classes()
 
 
-# The AST whitelist and the integer wrapper live in parse.py (shared with the input gate).
+# The AST whitelist and the integer wrapper live in parse.py, shared with the input gate.
 
 
 def _infer_n(tree: ast.AST) -> Optional[int]:
-    """Max integer leg label appearing as an argument of s/chain/ab/sb (the parser records
-    them; Pow exponents and the chain type string are not call arguments)."""
+    """The largest integer leg label among the arguments of s, chain, ab and sb, which the
+    parser records. Pow exponents and the chain type string are not call arguments."""
     legs = getattr(tree, "call_ints", set())
     return max(legs) if legs else None
 
 
 # --------------------------------------------------------------------------- #
-# The notation callables (closures over n + the bracket classes)
+# The notation callables, closures over n and the bracket classes
 # --------------------------------------------------------------------------- #
 def _make_mandelstam(ab, sb, n: Optional[int]):
-    # NOTE: s_I = (sum_{i in I} p_i)^2 = sum_{i<j in I} <ij>[ji] is a purely ALGEBRAIC
-    # identity, independent of n. The n-dependent on-shell relations (s_I = 0 for the
-    # full set, s_I = s_complement by momentum conservation) are NOT applied here: the
-    # atomizer is a faithful translator, and baking in momentum conservation surprises
-    # the user (e.g. s(1,2) -> 0 when n auto-infers to 2). On-shell simplification is
-    # the verifier/backend's job. Only s of <=1 legs is 0 — that is masslessness
-    # (p_i^2 = 0), not momentum conservation, and holds for any n.
+    # s_I = (sum_{i in I} p_i)^2 = sum_{i<j in I} <ij>[ji] is an algebraic identity, independent
+    # of n. The n-dependent on-shell relations, s_I = 0 for the full set and s_I = s_complement
+    # by momentum conservation, are left to the verifier and the backends. The atomizer is a
+    # faithful translator, and baking in momentum conservation would surprise the user, for
+    # example with s(1,2) -> 0 when n is inferred as 2. Only s of at most one leg is 0, which is
+    # masslessness, p_i^2 = 0, and holds for any n.
     #
-    # Textbook convention (mainstream, Elvang-Huang / Dixon): s_ij = <ij>[ji], with the
-    # square bracket's indices REVERSED w.r.t. the angle bracket. Since sb(i,j) = [ij]
-    # here, [ji] = sb(j,i), so each pair is ab(i,j)*sb(j,i) (= -ab(i,j)*sb(i,j) after
-    # canonicalization). Do NOT "simplify" this to ab(i,j)*sb(i,j) — that is <ij>[ij] =
-    # -s_ij, the opposite sign. reorder_expr() in atomize() then flips sb(j,i)->-sb(i,j).
+    # In the textbook convention of Elvang and Huang and of Dixon, s_ij = <ij>[ji], the square
+    # bracket's indices reversed with respect to the angle bracket's. Since sb(i,j) = [ij] here,
+    # [ji] = sb(j,i), so each pair is ab(i,j)*sb(j,i), which is -ab(i,j)*sb(i,j) after
+    # canonicalization. ab(i,j)*sb(i,j) would be <ij>[ij] = -s_ij, the opposite sign.
+    # reorder_expr() in atomize() then flips sb(j,i) to -sb(i,j).
     def _s(*legs):
         I = sorted({int(x) for x in legs})
         m = len(I)
@@ -111,7 +109,7 @@ def _make_chain(ab, sb):
         b = int(rest[-1])
         channels = [[int(x) for x in M] for M in rest[:-1]]
         k = len(channels)
-        # parity: starting bracket = typ[0], flips once per momentum; last must be typ[1]
+        # The parity. The starting bracket is typ[0], it flips once per momentum, and the last must be typ[1].
         right = typ[0] if k % 2 == 0 else ("s" if typ[0] == "a" else "a")
         if right != typ[1]:
             need = "even" if typ[0] == typ[1] else "odd"
@@ -125,7 +123,7 @@ def _make_chain(ab, sb):
             ok = True
             for mth in range(k + 1):
                 x, y = pts[mth], pts[mth + 1]
-                if x == y:            # ab(x,x) = sb(x,x) = 0
+                if x == y:            # ab(x,x) and sb(x,x) are 0
                     ok = False
                     break
                 angle = (typ[0] == "a") == (mth % 2 == 0)
@@ -137,7 +135,7 @@ def _make_chain(ab, sb):
 
 
 # --------------------------------------------------------------------------- #
-# Denominator-monomial guard
+# The denominator must be a monomial
 # --------------------------------------------------------------------------- #
 def _reject_sum_denominator(expr: sp.Expr) -> None:
     den = sp.together(expr).as_numer_denom()[1]
@@ -152,9 +150,9 @@ def _reject_sum_denominator(expr: sp.Expr) -> None:
 
 
 def _rewrite_with_opaque_den(expr: sp.Expr) -> str:
-    """allow_opaque_den path: emit a string where every Add factor in the denominator
-    becomes an `opaque_den(S)` marker (the engine's symbolic 1/S, kept unexpanded through
-    the search), while monomial factors remain an ordinary product-of-brackets denominator.
+    """The allow_opaque_den path, which emits a string in which every Add factor in the
+    denominator becomes an `opaque_den(S)` marker, the engine's symbolic 1/S kept unexpanded
+    through the search, while monomial factors remain an ordinary product of brackets.
 
     The output is rebuilt from the numerator and denominator extracted by
     `sp.fraction(sp.together(expr))`, even when the denominator has no sum factors.
@@ -162,7 +160,7 @@ def _rewrite_with_opaque_den(expr: sp.Expr) -> str:
     from ..atoms import canonical_order as reorder_expr  # noqa: WPS433
     num, den = sp.fraction(sp.together(expr))
     mono_factors = []
-    opaque = []  # list of (S_expr, multiplicity)
+    opaque = []  # (S_expr, multiplicity) pairs
     for fac in sp.Mul.make_args(den):
         base, exp = (fac.base, fac.exp) if fac.is_Pow else (fac, sp.Integer(1))
         if base.is_Add:
@@ -172,11 +170,11 @@ def _rewrite_with_opaque_den(expr: sp.Expr) -> str:
             opaque.append((base, int(exp)))
         else:
             mono_factors.append(fac)
-    # Always rebuild from the together'd num/den — NOT str(expr): when sympy algebraically
-    # cancels the sum away (e.g. (S*c)/S -> c, so `den` is monomial/1 and `opaque` is empty),
-    # str(expr) would still carry the uncancelled `1/(sum)` and the engine would reject it.
-    # Rebuilding emits the cancelled monomial form here, and the opaque_den(S) marker only
-    # when the sum genuinely survives (i.e. it cancels only on-shell, for the search to do).
+    # Rebuild from the together'd num/den. When sympy cancels the sum away
+    # algebraically, as (S*c)/S -> c leaves `den` monomial and `opaque` empty, str(expr) would
+    # still carry the uncancelled `1/(sum)` and the engine would reject it. Rebuilding emits
+    # the cancelled monomial form, and the opaque_den(S) marker only when the sum survives,
+    # which means it cancels only on shell and is left to the search.
     d_mono = sp.Mul(*mono_factors) if mono_factors else sp.Integer(1)
     s = f"({reorder_expr(num)})"
     if d_mono != sp.Integer(1):
@@ -190,9 +188,8 @@ def _rewrite_with_opaque_den(expr: sp.Expr) -> str:
 # Public entry point
 # --------------------------------------------------------------------------- #
 def has_opaque_den(atomized: str) -> bool:
-    """True iff an atomized string carries an opaque polynomial-denominator marker.
-    Callers route these inputs to the GBFS family because the learned backends
-    cannot consume `opaque_den` markers."""
+    """True iff an atomized string carries a sum-denominator marker. Callers route these
+    inputs to the gbfs family because the neural baselines cannot consume `opaque_den`."""
     return "opaque_den(" in atomized
 
 
@@ -203,17 +200,16 @@ def atomize(raw: str, n_hint: Optional[int] = None, allow_opaque_den: bool = Tru
     Malformed notation, singular inputs and unsupported denominator factors raise
     `AtomizeError`.
 
-    With `allow_opaque_den=True` (the default), denominator sums with positive
-    integer powers are represented by `opaque_den(S)` factors for the GBFS
-    backends. Other powers of denominator sums are rejected. Setting
-    `allow_opaque_den=False` rejects denominator sums.
+    With `allow_opaque_den=True`, the default, denominator sums with positive integer powers
+    are represented by `opaque_den(S)` factors for the gbfs family. Other powers of
+    denominator sums are rejected. `allow_opaque_den=False` rejects denominator sums.
     """
     if not raw or not raw.strip():
         raise AtomizeError("empty expression")
-    # Normalize line breaks to spaces: a newline is a token separator (like a space) for
-    # Python's tokenizer, so `A + \n B` at top level (not inside brackets) is a SyntaxError.
-    # Users often paste expressions wrapped across lines; a space is the safe replacement
-    # (it never fuses adjacent tokens the way "" would, e.g. `12\n34` -> `12 34`, not `1234`).
+    # Normalise line breaks to spaces. A newline is a token separator for Python's tokenizer,
+    # so `A + \n B` outside brackets is a SyntaxError. Users often paste expressions wrapped
+    # across lines. A space replaces the newline, since "" would fuse adjacent tokens, and
+    # `12\n34` becomes `12 34`.
     try:
         tree = parse_tree(raw, calls=_ALLOWED_CALLS, names=_ALLOWED_NAMES, allow_str=True)
     except ParseError as e:
@@ -228,7 +224,7 @@ def atomize(raw: str, n_hint: Optional[int] = None, allow_opaque_den: bool = Tru
     except AtomizeError:
         raise
     except ParseError as e:
-        # eval_tree wraps the notation callables' own AtomizeErrors; surface those verbatim.
+        # eval_tree wraps the notation callables' own AtomizeErrors. Those are surfaced verbatim.
         cause = e.__cause__
         raise (cause if isinstance(cause, AtomizeError) else AtomizeError(str(e))) from e
     if expr.has(sp.zoo, sp.oo, sp.nan, -sp.oo):

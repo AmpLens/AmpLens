@@ -16,8 +16,7 @@ pyo3 = { version = "0.29.0" }
 blake2 = "0.10"
 
 [features]
-# `extension-module` tells pyo3 NOT to link libpython (the host Python provides its
-# symbols) — required for the wheel, enabled by maturin (see pyproject.toml). It is
-# left OFF for `cargo test`, so the test binary links libpython and the pure-Rust unit
-# tests run.
+# `extension-module` tells pyo3 not to link libpython, since the host Python provides its
+# symbols. The wheel requires it and maturin enables it through pyproject.toml. It is left
+# off for `cargo test`, so the test binary links libpython and the pure-Rust unit tests run.
 extension-module = ["pyo3/extension-module"]

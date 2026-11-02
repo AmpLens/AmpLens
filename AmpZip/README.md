@@ -19,24 +19,24 @@ See [docs/LIMITS.md](docs/LIMITS.md) for details.
 
 ## Install
 
-**From PyPI** (binary wheels for Linux, macOS and Windows, Python 3.12+):
+**From PyPI**, as binary wheels for Linux, macOS and Windows on Python 3.12 and later:
 
 ```bash
 pip install ampzip            # command line
 pip install 'ampzip[web]'     # plus the web service
 ```
 
-**From source** (needs a Rust toolchain, <https://rustup.rs>):
+**From source**, which needs a Rust toolchain from <https://rustup.rs>:
 
 ```bash
 git clone https://github.com/AmpLens/AmpLens
 cd AmpLens/AmpZip
-pip install ./ampzip/engine          # the Rust engine (distribution `amplens-engine`)
+pip install ./ampzip/engine          # the Rust engine, distributed as `amplens-engine`
 pip install -e '.[web,dev]'
 python tests/run_tests.py
 ```
 
-**Web service with Docker** (run from the `AmpZip` directory):
+**Web service with Docker**, run from the `AmpZip` directory:
 
 ```bash
 docker compose up             # then open http://127.0.0.1:8000
@@ -60,13 +60,13 @@ Use `--algorithms` to select one or more backends, separated by commas.
 
 | Backend | Description |
 |---|---|
-| `model_free_gbfs` | Greedy best-first search with the factored bracket count as its objective (default). |
+| `model_free_gbfs` | The default. Greedy best-first search with the factored bracket count as its objective. |
 | `gbfs_c`, `gbfs_d`, `gbfs_e`, `gbfs_f` | Search variants with alternative objectives or per-term simplification. |
 | `sft_greedy` | SFT with greedy action selection. |
 | `sft_best_of_n` | SFT with best-of-N selection. |
 | `cds_oneshot` | CDS sequence-to-sequence simplification. |
 
-SFT uses the model checkpoints provided by Shih (arXiv:2603.11164). CDS uses the model checkpoints provided by Cheung, Dersy and Schwartz (arXiv:2408.04720).
+SFT uses the model checkpoints published with arXiv:2603.11164. CDS uses the model checkpoints published with arXiv:2408.04720.
 
 SFT and CDS require separate installation. See [Optional learned backends](#optional-learned-backends) below.
 

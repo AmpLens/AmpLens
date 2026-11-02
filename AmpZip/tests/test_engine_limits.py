@@ -15,7 +15,7 @@ def _skip():
 
 def test_parse_cap():
     if _skip():
-        print("  (engine without apply_slice_coded: skipped)"); return
+        print("  skipped, the engine has no apply_slice_coded"); return
     E.Expr(SUM + "**3", max_terms=50000)
     try:
         E.Expr(SUM + "**9", max_terms=50)
@@ -29,7 +29,7 @@ def test_term_slot_cap():
     if _skip():
         return
     x = E.Expr("ab(1,2)**6*sb(3,4) + ab(1,3)*sb(2,4)")
-    # a per-term Schouten rewrite of ab(1,2)**6 in term 0 with a 2-term cap must be skipped
+    # A per-term Schouten rewrite of ab(1,2)**6 in term 0 with a 2-term cap is skipped.
     try:
         x.apply(False, 1, 2, "schouten", [3, 4], 4, term_slot=1, max_terms=2)
     except ValueError as e:

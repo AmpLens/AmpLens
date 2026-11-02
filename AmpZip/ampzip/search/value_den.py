@@ -1,4 +1,4 @@
-"""Denominator-aware frontier ordering for gbfs (the B2 "construct-the-factor" bias).
+"""Denominator-aware frontier ordering for gbfs, a bias towards constructing the denominator factors.
 
 `den_aware_value(handle)` sets frontier priorities in `gbfs.simplify` without
 changing the search objective. Changing the order can improve or worsen the result
@@ -22,20 +22,21 @@ from __future__ import annotations
 
 
 def den_match_remaining(handle) -> int:
-    """How much of the (monomial) denominator is NOT yet cancellable against the numerator.
+    """How much of the monomial denominator is not yet cancellable against the numerator.
 
-    For each denominator bracket b^e, the cancellable amount is min over numerator terms of
-    b's power in that term (a bracket cancels only if EVERY term carries it). The remaining
-    gap is sum of max(0, e - that_min). 0 means the whole denominator can cancel now.
+    For each denominator bracket b^e, the cancellable amount is the minimum over numerator
+    terms of b's power in that term, since a bracket cancels only if every term carries it.
+    The remaining gap is the sum of max(0, e - that_min), and 0 means the whole denominator
+    can cancel now.
 
-    Prefers the Rust `Expr.den_match_remaining()` accessor (engine >= the B2 build) — it
-    computes the same value without marshalling every term to Python, which is what made the
-    den-aware value_fn ~2.3x slower in the pure-Python prototype. Falls back to Python.
+    The engine's `Expr.den_match_remaining()` computes the same value without marshalling
+    every term to Python, which made the denominator-aware value_fn about 2.3x slower in the
+    pure-Python prototype. Older engines take the Python path.
     """
     rust = getattr(handle, "den_match_remaining", None)
     if rust is not None:
         return rust()
-    den = handle.den_brackets()          # [(square, i, j, exp), ...]  (empty if no denominator)
+    den = handle.den_brackets()          # [(square, i, j, exp), ...], empty without a denominator
     if not den:
         return 0
     terms = handle.term_powers()         # [(coeff, [(square, i, j, exp), ...]), ...]
@@ -58,11 +59,10 @@ def div_progress(handle) -> int:
     present, reducing the priority to
     `bracket_count + w_remaining * den_match_remaining`.
 
-    A larger overlap can favor construction of a cancellable factor, but the
-    score need not increase along a derivation and does not establish
-    divisibility. Cancellation itself uses exact polynomial division in the
-    engine. GBFS backends compare the selected result with the input using a
-    finite-field equality check.
+    A larger overlap can favour construction of a cancellable factor, but the score need not
+    increase along a derivation and does not establish divisibility. Cancellation itself
+    uses exact polynomial division in the engine, and the gbfs backends compare the selected
+    result with the input through the finite-field test.
     """
     accessor = getattr(handle, "den_opaque_terms", None)
     if accessor is None:
@@ -92,5 +92,5 @@ def make_den_aware_value(w_remaining: float = 1.0, w_div: float = 2.0):
     return value_fn
 
 
-# Default weights for denominator-aware ordering.
+# The default weights of the denominator-aware ordering.
 den_aware_value = make_den_aware_value()

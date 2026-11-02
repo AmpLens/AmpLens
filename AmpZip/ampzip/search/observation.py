@@ -1,12 +1,11 @@
-"""Fixed-shape observation tensor from an `ampzip_engine.Expr` handle.
+"""A fixed-shape observation tensor from an `ampzip_engine.Expr` handle.
 
-Built straight from the engine's structured accessors (`term_powers`, `den_brackets`) in
-the engine's canonical order — so it is deterministic and construction-order-independent
-(two spellings of the same expression give the same tensor), and it matches the order the
-`term_slot` action axis uses (`action_space.py`). This is the input a future policy/value
-net consumes; pure search does not need it.
+It is built from the engine's accessors `term_powers` and `den_brackets` in the engine's
+canonical order, so two spellings of the same expression give the same tensor, and it
+matches the order of the `term_slot` action axis in `action_space.py`. It is the input of a
+policy or value network, and the search does not use it.
 
-Layout (n=4, max_terms=10 -> dim 146):
+The layout, with n=4 and max_terms=10 giving dim 146, is
   numerator   : max_terms x (n_brackets + 1)
                 per term: exponent of each canonical bracket,
                 then signed log1p(|coeff|)

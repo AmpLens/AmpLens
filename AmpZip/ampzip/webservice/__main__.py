@@ -21,7 +21,7 @@ def main() -> None:
         "ampzip.webservice.app:app",
         host=CONFIG.host,
         port=CONFIG.port,
-        workers=1,           # single process: in-memory job store is not shared
+        workers=1,           # a single process, since the in-memory job store is not shared
         log_level="info",
     )
 

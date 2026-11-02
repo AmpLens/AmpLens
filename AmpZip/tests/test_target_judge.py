@@ -16,8 +16,8 @@ from ampzip.simplifier.result import AlgorithmResult  # noqa: E402
 from ampzip.simplifier.runner import _judge_target, run_all  # noqa: E402
 
 TARGET = "ab(1,2)*ab(3,4)"
-SCHOUTEN = "ab(1,3)*ab(2,4) - ab(1,4)*ab(2,3)"      # equal to TARGET, four brackets instead of two
-WRONG = "ab(1,3)*ab(2,4) + ab(1,4)*ab(2,3)"         # not equal
+SCHOUTEN = "ab(1,3)*ab(2,4) - ab(1,4)*ab(2,3)"      # equal to TARGET, with four brackets
+WRONG = "ab(1,3)*ab(2,4) + ab(1,4)*ab(2,3)"         # unequal to TARGET
 
 
 def _check(cond, msg):
@@ -33,7 +33,7 @@ def _fake(algo, form, solved=True):
 
 
 def main():
-    # simplified but not down to the target: equal, yet more brackets -> not solved
+    # Simplified but not down to the target, equal yet with more brackets, so not solved.
     r = _fake("sft_greedy", SCHOUTEN)
     _judge_target(r, TARGET, 4, "brackets", 0)
     _check(r.extra["target_equal"] is True and r.solved is False,
@@ -45,7 +45,7 @@ def main():
     r = _fake("cds_oneshot", "-ab(2,1)*ab(3,4)")
     _judge_target(r, TARGET, 4, "brackets-and-terms", 0)
     _check(r.solved is True, "an equal form of the same size is solved under brackets-and-terms")
-    # not equal -> not solved whatever the size
+    # Unequal, so not solved whatever the size.
     r = _fake("sft_best_of_n", WRONG)
     _judge_target(r, TARGET, 4, "brackets", 0)
     _check(r.solved is False and r.extra["target_equal"] is False, "a non-equal form is not solved")
@@ -53,7 +53,7 @@ def main():
     r = _fake("sft_greedy", SCHOUTEN)
     _judge_target(r, TARGET, 4, "none", 0)
     _check(r.solved is True, "criterion none: an equal form is solved regardless of size")
-    # a form the engine cannot count: not solved, with the reason
+    # A form the engine cannot count is not solved, with the reason.
     r = _fake("cds_oneshot", "ab(1,2)*ab(3,4)/2")
     _judge_target(r, TARGET, 4, "brackets", 0)
     _check(r.solved is False and "target_check_note" in r.extra,

@@ -1,15 +1,16 @@
-# One-command local deployment, from this directory (the one holding this file):
+# Local deployment from this directory.
 #   docker compose up
-# then open http://127.0.0.1:8000. The `ampzip` service runs the training-free search only, with
-# authentication off and the port bound to loopback. Do not change the bind without reading
-# docs/DEPLOY.md: the dev auth mode trusts every request.
+# Then open http://127.0.0.1:8000. The `ampzip` service runs the search only, with
+# authentication off and the port bound to loopback. The dev auth mode trusts every request,
+# so read docs/DEPLOY.md before changing the bind.
 #
-# Learned backends (SFT / CDS): `ampzip fetch-backends [--cds]` on the host, then
+# For the SFT and CDS backends run `ampzip fetch-backends`, with --cds for the CDS weights, on
+# the host, then
 #   docker compose build ampzip            # the ML image is built on top of ampzip:local
 #   docker compose stop ampzip             # both services publish 127.0.0.1:8000
 #   docker compose up --build ampzip-ml
-# which mounts the fetched tree read-only and installs torch into the image. Name the service
-# as above; `docker compose --profile ml up` would start both services on the same port.
+# The ML service mounts the fetched tree read-only and installs torch into its image. Name
+# the service as above. `docker compose --profile ml up` would start both on the same port.
 
 services:
   ampzip:
@@ -28,8 +29,8 @@ services:
       - /tmp
     restart: unless-stopped
 
-  # Started by name (`docker compose up ampzip-ml`); shares the host port with `ampzip`, so stop
-  # that one first.
+  # Started by name with `docker compose up ampzip-ml`. It shares the host port with `ampzip`,
+  # so stop that one first.
   ampzip-ml:
     profiles: ["ml"]
     build:
@@ -45,8 +46,8 @@ services:
       AMPZIP_BACKENDS: /backends/RL_amplitudes_claude
     volumes:
       - ampzip-logs:/home/ampzip/logs
-      # The tree written by `ampzip fetch-backends` on the host (default location shown;
-      # change the left-hand side if you passed --dest or set AMPZIP_BACKENDS).
+      # The tree written by `ampzip fetch-backends` on the host, at its default location.
+      # Change the left-hand side if you passed --dest or set AMPZIP_BACKENDS.
       - ${AMPZIP_BACKENDS_HOST:-~/.local/share/ampzip/backends}:/backends:ro
     restart: unless-stopped
 

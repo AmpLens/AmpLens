@@ -1,11 +1,9 @@
 """Shared post-processing helpers used by all algorithm backends.
 
-The two main concerns:
-1. Bracket counting that works regardless of which sympy `ab`/`sb` class is in
-   use (SFT-side `spin_helicity_env.ab` vs CDS-side `bracket_env.ab` — both
-   register under the same name).
-2. Output post-processing controlled by `--simplify-mode` (default: none).
-   For example, expand rewrites
+It covers bracket counting that works with either sympy `ab`/`sb` class, the SFT-side
+`spin_helicity_env.ab` or the CDS-side `bracket_env.ab`, which register under the same name,
+and the output post-processing controlled by `--simplify-mode`, none by default. For
+example, expand rewrites
    `(2*ab(1,3)*ab(2,4) - ab(1,4)*ab(2,3))/ab(1,4)` as
    `2*ab(1,3)*ab(2,4)/ab(1,4) - ab(2,3)`.
 """
@@ -58,7 +56,7 @@ def count_brackets(expr) -> int:
     Applies `sp.factor_terms` throughout the expression, without polynomial
     expansion, then counts ab/sb occurrences. Within each sum, a factor common
     to all terms is counted once:
-        ab(1,2)*ab(2,3)*ab(3,4) + ab(1,2)*ab(2,3)*ab(4,5)  ->  4   (raw would be 6)
+        ab(1,2)*ab(2,3)*ab(3,4) + ab(1,2)*ab(2,3)*ab(4,5)  ->  4
 
     If `factor_terms` fails, the count is computed from the original expression.
 
@@ -66,10 +64,8 @@ def count_brackets(expr) -> int:
     expression tree. The engine's `factored_bracket_count` counts only the
     numerator. This function is used internally for gbfs_c's ordering and for
     gbfs_f's and CDS's candidate selection. The runner recomputes reported counts
-    with `display_bracket_count` (numerator only).
-
-    (Switched from raw counting on 2026-07-02; `_count_brackets_raw` preserves the old
-    behaviour for callers that need occurrence counts.)
+    with `display_bracket_count`, which counts the numerator only. `_count_brackets_raw`
+    keeps the plain occurrence count for callers that need it.
     """
     if expr is None:
         return 0
@@ -81,10 +77,10 @@ def count_brackets(expr) -> int:
 
 
 def _display_count_sympy(expr_str: str) -> int:
-    """`display_bracket_count` by sympy, for expressions the engine refuses: numerator of the
-    combined fraction, expanded as the engine expands it (`(⟨12⟩+⟨34⟩)**2` is three terms, six
-    brackets), the monomial factor common to all terms taken out, then every ab/sb power counted
-    with multiplicity. Raises on anything it cannot parse."""
+    """`display_bracket_count` by sympy, for expressions the engine refuses. The numerator of the
+    combined fraction is expanded as the engine expands it, `(⟨12⟩+⟨34⟩)**2` being three terms
+    and six brackets, the monomial factor common to all terms is taken out, and every ab/sb
+    power is counted with multiplicity. Raises on anything it cannot parse."""
     from ampzip.atoms import ab, sb
     e = sp.sympify(str(expr_str), locals={"ab": ab, "sb": sb, "opaque_den": sp.Function("opaque_den")})
     num, _den = sp.fraction(sp.together(e))
@@ -94,21 +90,21 @@ def _display_count_sympy(expr_str: str) -> int:
 def display_bracket_count(expr_str: str, max_terms: int = 0) -> int:
     """Report-side bracket count: the factored numerator bracket count, the default search's
     objective. Numerator factors are counted with multiplicity after the monomial factor common
-    to every term is taken out; denominator brackets are not counted. README's
+    to every term is taken out, and denominator brackets are not counted. The README's
     `ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))` counts 3, `ab(1,2)/ab(3,4)**5` counts 1,
     `ab(1,2)*ab(2,3)*ab(3,4) + ab(1,2)*ab(2,3)*ab(4,5)` counts 4.
 
-    The engine computes it (`Expr.factored_bracket_count`); an expression the engine refuses (a
-    non-integer rational coefficient, `I`) is counted by sympy under the same rule. Returns -1
-    when neither can count it; a -1 must never be compared with another count. Distinct from
-    `count_brackets`, the backends' internal whole-tree metric."""
+    The engine computes it as `Expr.factored_bracket_count`. An expression the engine refuses,
+    one with a non-integer rational coefficient or `I`, is counted by sympy under the same
+    rule. Returns -1 when neither can count it, which callers treat as unknown.
+    It differs from `count_brackets`, the backends' internal whole-tree count."""
     s = str(expr_str or "").strip()
     if not s:
         return -1
     try:
         from ampzip.search.gbfs import new_expr
         return int(new_expr(s, max_terms).factored_bracket_count())
-    except Exception:  # noqa: BLE001  (engine limits: fall through to the sympy rule)
+    except Exception:  # noqa: BLE001  an engine limit, so the sympy rule applies
         pass
     try:
         return int(_display_count_sympy(s))
@@ -120,8 +116,8 @@ SIMPLIFY_MODES = ("none", "cancel", "expand", "simplify")
 
 
 def _apply_mode(expr, mode: str):
-    """The post-processing step itself (in-process). Never raises: a sympy failure returns
-    the input unchanged."""
+    """The post-processing step itself, in process. A sympy failure returns the input
+    unchanged."""
     if mode == "cancel":
         try:
             expr = sp.cancel(expr)
@@ -138,13 +134,13 @@ def _apply_mode(expr, mode: str):
             expr = sp.simplify(expr)
         except Exception:
             pass
-    # mode == "none": no-op
+    # mode "none" does nothing
     return expr
 
 
 class PostResult(NamedTuple):
     expr_str: str
-    bracket_count: int        # factored count (count_brackets); -1 when the step failed
+    bracket_count: int        # the factored count of count_brackets, -1 when the step failed
     # Time limit expired or helper exited without a complete reply.
     # In either case, expr_str contains the original input.
     timed_out: bool
@@ -153,8 +149,8 @@ class PostResult(NamedTuple):
 
 
 def _pump_lines(stream, replies: "queue.Queue[Optional[bytes]]") -> None:
-    """Forward the helper's reply lines to `replies`, then None at EOF. Runs in a daemon
-    thread per helper process: `select()` cannot wait on a pipe on Windows (WinError 10038)."""
+    """Forward the helper's reply lines to `replies`, then None at EOF. It runs in a daemon
+    thread per helper process, since `select()` cannot wait on a pipe on Windows."""
     try:
         for line in iter(stream.readline, b""):
             replies.put(line.rstrip(b"\r\n"))
@@ -166,8 +162,9 @@ def _pump_lines(stream, replies: "queue.Queue[Optional[bytes]]") -> None:
 class _PostWorker:
     """One persistent helper process (`_post_worker`) per parent process, lock-serialised.
 
-    Started lazily, restarted after a kill. A per-call child would cost a sympy import
-    (~1.5 s) per expression, which the per-term drivers call up to 64 times per run."""
+    It is started lazily and restarted after a kill. A per-call child would cost a sympy
+    import of about 1.5 s per expression, which the per-term drivers call up to 64 times per
+    run."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -179,8 +176,8 @@ class _PostWorker:
             [sys.executable, "-m", "ampzip.simplifier.algorithms._post_worker"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=dict(os.environ, PYTHONWARNINGS="ignore"))
-        # A fresh queue per process: a late reply from a killed helper can never be read
-        # as the answer to the next request.
+        # A fresh queue per process, so a late reply from a killed helper is never read as the
+        # answer to the next request.
         self._replies = queue.Queue()
         threading.Thread(target=_pump_lines, args=(self._proc.stdout, self._replies),
                          daemon=True).start()
@@ -199,7 +196,7 @@ class _PostWorker:
         if timeout_s <= 0:
             return None
         try:
-            return self._replies.get(timeout=timeout_s)   # None: the child died
+            return self._replies.get(timeout=timeout_s)   # None means the child died
         except queue.Empty:
             return None
 
@@ -261,7 +258,7 @@ def post_process(expr_in, mode: str = "none", *, timeout_s: Optional[float] = DE
 
 
 def count_brackets_bounded(expr_str: str, *, timeout_s: Optional[float] = DEFAULT_POST_TIMEOUT_S) -> int:
-    """`count_brackets` of a sympy string in the helper process; -1 on timeout/failure."""
+    """`count_brackets` of a sympy string in the helper process, -1 on timeout or failure."""
     if not timeout_s:
         try:
             from ampzip.atoms import ab, sb
@@ -284,10 +281,11 @@ def judge_solved(final_str: str, target_str: str, criterion: str,
                  max_terms: int = 0) -> Tuple[Optional[bool], dict]:
     """Target-relative success on the engine's raw numerator counts.
 
-    `brackets`: raw numerator bracket count <= target's. `brackets-and-terms`: also the
-    additive term count <= target's. Returns `(verdict, counts)`; verdict is None when either
-    side cannot be parsed by the engine (counts then carries the error). Both sides are parsed
-    under `max_terms`, the search's own cap, so no engine-internal default binds below it."""
+    `brackets` asks for a raw numerator bracket count at most the target's, and
+    `brackets-and-terms` for the additive term count too. Returns `(verdict, counts)`, with
+    verdict None when either side cannot be parsed by the engine, in which case counts carries
+    the error. Both sides are parsed under `max_terms`, the search's own cap, so no
+    engine-internal default binds below it."""
     try:
         from ampzip.search.gbfs import new_expr
         f, t = new_expr(final_str, max_terms), new_expr(target_str, max_terms)
@@ -310,9 +308,9 @@ def maybe_simplify(
 ) -> Tuple[str, int, object]:
     """Post-process a backend's output, return (str, bracket_count, sympy_expr).
 
-    Runs through `post_process` (bounded, helper process) when `simplify_timeout_s` is set;
-    the sympy expression is then None. `simplify_timeout_s=None`/0 keeps the in-process
-    path (unbounded) and returns the sympy expression too.
+    It runs through `post_process`, bounded in the helper process, when `simplify_timeout_s`
+    is set, and the sympy expression is then None. With `simplify_timeout_s` None or 0 the
+    work runs in process without a bound and the sympy expression is returned too.
     """
     if simplify_timeout_s:
         r = post_process(expr_in, mode, timeout_s=simplify_timeout_s, ab_cls=ab_cls, sb_cls=sb_cls)
@@ -323,16 +321,14 @@ def maybe_simplify(
 def _maybe_simplify_inprocess(expr_in, mode, ab_cls=None, sb_cls=None) -> Tuple[str, int, object]:
     """Re-parse if needed, apply `mode`-specific post-processing, return (str, bracket_count, sympy_expr).
 
-    `mode`:
-        none     — no post-processing (raw model output)
-        cancel   — `sp.cancel`: polynomial gcd cancellation; safe, never blows up term count
-        expand   — `sp.cancel` then `sp.expand`: distributes denominators into numerators
-                   (catches partial-fraction splits like `(num + A*d)/d → num/d + A`)
-        simplify — `sp.simplify`: aggressive; can find substantially shorter forms but
-                   may hang on big expressions
+    `mode` none applies no post-processing. cancel runs `sp.cancel`, polynomial gcd
+    cancellation, which never blows up the term count. expand runs `sp.cancel` then
+    `sp.expand`, which distributes denominators into numerators and catches partial-fraction
+    splits like `(num + A*d)/d → num/d + A`. simplify runs `sp.simplify`, which can find
+    much shorter forms but may hang on big expressions.
 
-    `expr_in` may be a `sp.Expr` or a `str`. On any failure we return the raw string
-    with bracket_count = -1.
+    `expr_in` may be a `sp.Expr` or a `str`. On any failure the raw string is returned with
+    bracket_count -1.
     """
     if expr_in is None or expr_in == "":
         return "", 0, None

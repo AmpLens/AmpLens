@@ -1,40 +1,39 @@
 """Save and restore the full interior state of a `gbfs.simplify` run.
 
-Why not pickle: the interior of a long run is a few hundred million dict entries. Pickling
-those dicts is slow, and it allocates a second copy while dumping -- on a run whose whole
-problem is memory, that is the one thing that must not happen. So the state goes out as flat
-binary sections written straight from the live containers, and comes back by rebuilding them
-in one pass.
+The interior of a long run is a few hundred million dict entries. Pickling those dicts is
+slow and allocates a second copy while dumping, which a run whose whole problem is memory
+cannot afford. So the state goes out as flat binary sections written straight from the live
+containers and comes back by rebuilding them in one pass.
 
 The three per-node containers (`visited`, `parent`, `move_into`) share one key set and one
 insertion order, so they serialise as a single fixed-size record per node (version 2):
 
     NODES     n_nodes x (key 16 | parent_key 16 | packed_move u64, or u64 lo | u64 hi)
-    FRONTIER  n_frontier x (priority u64 | u64 lo,hi | float64  ;  counter int64 | key 16)
+    FRONTIER  n_frontier x (priority u64 | u64 lo,hi | float64 , counter int64 | key 16)
 
-The header says which widths were used (`move_bytes` 8 or 16, `priority_format` "u64" /
-"u128" / "f64") and which encodings (`move_layout` 2, `priority_shift` 32), so a reader never
-guesses. Moves are packed with `gbfs._pack_move` (layout 2, unbounded term-slot field at the
-top); the writer widens the record to 16 bytes only when a run actually produced a value that
-does not fit 63 bits. A packed default-objective priority is stored as an exact integer;
-`f64` is used only for the float priorities a `value_fn` produces.
+The header records the widths used, `move_bytes` 8 or 16 and `priority_format` "u64",
+"u128" or "f64", and the encodings, `move_layout` 2 and `priority_shift` 32. Moves are
+packed with `gbfs._pack_move`, layout 2 with the unbounded term-slot
+field at the top. The writer widens the record to 16 bytes only when a run produced a value
+that does not fit 63 bits. A packed default-objective priority is stored as an exact integer,
+and `f64` is used only for the float priorities a `value_fn` produces.
 
-Version 1 files (layout-1 moves in an int64, float64 priorities packed with a 20-bit shift,
-optional DEPTH section) are still read; `load()` fills in `move_layout=1`,
-`priority_format="f64"`, `priority_shift=20` so `gbfs.simplify` can migrate them in place
-on resume. A resumed v1 file is written back as v2 at its next save.
+Version 1 files, with layout-1 moves in an int64, float64 priorities packed with a 20-bit
+shift and an optional DEPTH section, are still read. `load()` fills in `move_layout=1`,
+`priority_format="f64"` and `priority_shift=20` so `gbfs.simplify` can migrate them in
+place on resume. A resumed v1 file is written back as v2 at its next save.
 
-The JSON header is also the run LOG. Besides the scalars needed to resume, it carries the
-best node's derivation (`best_expr` and its `path_moves`, so the answer survives even if a
-later segment never improves on it) and a `segments` list -- one record per launch, appended
-on every resume, holding when it ran, on how many threads, under what budget, how many
-applies and expansions it added, what the best was on entry and exit, why it stopped, and its
-peak RSS. A checkpoint therefore reads back as the full history of the search, not just its
-current state.
+The JSON header is also the run log. Besides the scalars needed to resume, it carries the
+best node's derivation, `best_expr` and its `path_moves`, so the answer survives even if a
+later segment never improves on it, and a `segments` list with one record per launch,
+appended on every resume, holding when it ran, on how many threads, under what budget, how
+many moves and expansions it added, what the best was on entry and exit, why it stopped, and
+its peak RSS. A checkpoint therefore reads back as the full history of the search as well as
+its current state.
 
-`handle_cache` is deliberately NOT saved: it only shortens replays, every node it yields is
-checked against its key, and it refills from the root the same way on resume -- so dropping
-it costs a little time and cannot change a result.
+`handle_cache` is left out. It only shortens replays, every node it yields is checked
+against its key, and it refills from the root the same way on resume, so dropping it costs a
+little time and cannot change a result.
 
 A checkpoint stores the frontier and counters, but not the remaining moves of a partially
 expanded node. Continuing the search in the same order as an uninterrupted run requires saving
@@ -60,7 +59,7 @@ _U64 = 1 << 64
 
 
 def new_segment(**kw):
-    """One launch's log record; `simplify` fills the exit fields before saving."""
+    """One launch's log record. `simplify` fills the exit fields before saving."""
     seg = {"started_at": _now(), "host": platform.node(), "pid": os.getpid(),
            "cpu_affinity": _affinity(), "threads": None, "batch_chunk": None,
            "max_apps": None, "max_seconds": None, "rss_stop_gb": None,
@@ -76,7 +75,7 @@ def _now():
 
 
 def _affinity():
-    """Cores this process may run on -- the honest answer to "how many cores did it get"."""
+    """The cores this process may run on."""
     try:
         cores = sorted(os.sched_getaffinity(0))
     except AttributeError:
@@ -102,7 +101,7 @@ def peak_rss_gb() -> float | None:
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     except (ImportError, OSError):
         return None
-    # macOS reports bytes; Linux reports KiB.
+    # macOS reports bytes and Linux KiB.
     return peak / (1 << (30 if platform.system() == "Darwin" else 20))
 
 
@@ -113,11 +112,12 @@ def save(path, *, n, root_str, parent, move_into, frontier,
          bracket_goal, goal, patience_hit, stopped,
          priority_format="packed", segments=(), best_expr=None, path_moves=None, extra=None,
          low_memory=None, depth=None):
-    """Write the run's interior to `path` (atomically, via a .part rename).
+    """Write the run's interior to `path` atomically, through a .part rename.
 
     `priority_format` is "packed" when the frontier holds the default objective's packed
-    ints (stored exactly, as u64 or u128) and "f64" when it holds `value_fn` floats.
-    `low_memory` / `depth` are accepted for old callers and ignored (there is no depth map)."""
+    ints, stored exactly as u64 or u128, and "f64" when it holds `value_fn` floats.
+    `low_memory` and `depth` are accepted for old callers and ignored, since there is no depth
+    map."""
     max_move = max((mv for mv in move_into.values() if mv is not None), default=0)
     if max_move < 0:
         raise ValueError("negative packed move")
@@ -149,9 +149,9 @@ def save(path, *, n, root_str, parent, move_into, frontier,
         "goal": bool(goal), "patience_hit": bool(patience_hit), "stopped": bool(stopped),
         "n_nodes": len(parent), "n_frontier": len(frontier),
         "has_depth": False,
-        # --- log / provenance, not needed to resume but the reason a checkpoint is readable
+        # --- the log and provenance, which make a checkpoint readable
         "best_expr": best_expr,
-        "path_moves": path_moves,          # packed ints, root -> best
+        "path_moves": path_moves,          # packed ints from the root to the best node
         "segments": list(segments),
         "extra": dict(extra or {}),
         "saved_at": _now(),
@@ -164,7 +164,7 @@ def save(path, *, n, root_str, parent, move_into, frontier,
         f.write(hb)
         if move_bytes == 8:
             pack = struct.Struct("<Q").pack
-            for k, pk in parent.items():                  # insertion order == discovery order
+            for k, pk in parent.items():                  # insertion order is discovery order
                 mv = move_into[k]
                 f.write(k)
                 f.write(_ZERO16 if pk is None else pk)
@@ -197,11 +197,11 @@ def save(path, *, n, root_str, parent, move_into, frontier,
 
 
 def formats(header):
-    """Normalise a header (v1 or v2) and return `(header, node_struct, frontier_struct)`.
+    """Normalise a v1 or v2 header and return `(header, node_struct, frontier_struct)`.
 
-    v1 files predate the format fields; they are filled in here so every reader (this one,
-    `paper/scripts/memory_efficient_checkpoint.py`, `gbfs.simplify`'s migration) sees the
-    same keys: `move_layout`, `move_bytes`, `priority_format`, `priority_shift`."""
+    v1 files predate the format fields, which are filled in here so every reader, this one,
+    `paper/scripts/memory_efficient_checkpoint.py` and `gbfs.simplify`'s migration, sees the
+    same keys `move_layout`, `move_bytes`, `priority_format` and `priority_shift`."""
     if header["version"] not in _READABLE_VERSIONS:
         raise ValueError(f"checkpoint version {header['version']} not in {_READABLE_VERSIONS}")
     if header["version"] == 1:
@@ -216,9 +216,9 @@ def formats(header):
 
 
 def load(path):
-    """Rebuild the containers written by `save` (version 1 or 2). Returns
-    (header, parent, move_into, visited, depth, frontier); `depth` is None unless a v1 file
-    carried a DEPTH section (it is loaded for completeness and ignored by the search)."""
+    """Rebuild the containers written by `save`, version 1 or 2. Returns
+    (header, parent, move_into, visited, depth, frontier). `depth` is None unless a v1 file
+    carried a DEPTH section, which is loaded for completeness and ignored by the search."""
     with open(path, "rb", buffering=1 << 22) as f:
         if f.read(len(_MAGIC)) != _MAGIC:
             raise ValueError(f"{path}: not a gbfs checkpoint")

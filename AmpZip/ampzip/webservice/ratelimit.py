@@ -1,4 +1,4 @@
-"""Per-email rate limiter — simple in-memory sliding window.
+"""The per-email rate limiter, an in-memory sliding window.
 
 Job submissions and numerical checks share one per-email quota, independent of
 the global job queue limit. Counts are held in memory within one process.

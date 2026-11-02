@@ -1,5 +1,5 @@
-"""gbfs_e / gbfs_f: the variant-level move budget is a true ceiling over all pieces; the
-split cap is a parameter and is reported."""
+"""In gbfs_e and gbfs_f the variant-level move budget bounds all pieces together, and the
+split cap is a reported parameter."""
 import os, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -10,7 +10,7 @@ from ampzip.simplifier.runner import run_all
 X = "ab(1,2)*ab(3,4)/ab(1,4) - ab(1,3)*ab(2,4)/ab(1,4) + ab(2,3)*ab(1,4)/ab(2,4)"
 
 
-def test_apps_ceiling():
+def test_apps_limit():
     e = sp.sympify(X, locals={"ab": ab, "sb": sb})
     for algo in ("gbfs_e", "gbfs_f"):
         (r,) = run_all([algo], e, 4, gbfs_max_apps=100, gbfs_max_seconds=30, raw_input=X)
@@ -29,7 +29,7 @@ def test_split_cap_parameter():
 
 
 def main():
-    test_apps_ceiling(); print("  ok test_apps_ceiling")
+    test_apps_limit(); print("  ok test_apps_limit")
     test_split_cap_parameter(); print("  ok test_split_cap_parameter")
     return 0
 

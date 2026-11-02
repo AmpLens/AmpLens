@@ -1,4 +1,4 @@
-"""Move/priority packing: full-range round trip, v1 checkpoint files still load and resume."""
+"""Move and priority packing round-trip over the full range, and v1 checkpoint files still load and resume."""
 import os, sys
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)

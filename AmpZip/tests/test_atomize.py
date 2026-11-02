@@ -2,9 +2,9 @@
 
 Standalone runnable (no pytest):  python tests/test_atomize.py
 
-Correctness is locked by the exact on-shell mod-p verifier (ampzip.verify.equal):
-every atomization must be value-equal to a hand-written atomic reference. The
-denominator-monomial guard, degeneracies, and safe-parse rejections are also checked.
+Every atomization is checked value-equal to a hand-written atomic reference by the
+finite-field test of ampzip.verify.equal. The monomial-denominator rule, degeneracies and
+parser rejections are also checked.
 """
 import os
 import random
@@ -59,7 +59,7 @@ def _rejects(raw, n, why):
 
 def _accepts_opaque(raw, n, why):
     """A multi-particle pole in a denominator is (default allow_opaque_den=True) kept as
-    a symbolic opaque_den(S) marker for the gbfs backend, NOT rejected."""
+    a symbolic opaque_den(S) marker for the gbfs backend."""
     try:
         out = atomize(raw, n)
     except AtomizeError as e:
@@ -81,16 +81,15 @@ def main():
     _eq("s(1,2)/3", 4, ab(1, 2) * sb(2, 1) / 3)
     _eq("1/2*s(1,2)", 4, sp.Rational(1, 2) * ab(1, 2) * sb(2, 1))  # exact rational, no float
 
-    print("Mandelstam — n-independent (no momentum conservation baked in):")
-    _is_zero("s(1)", 4)                   # s of <=1 leg = 0 (masslessness, any n)
-    # s_I expands the SAME way regardless of n (faithful: no complement swap, no
-    # zeroing of the full set). These on-shell identities still hold by the verifier:
-    _is_zero("s(1,2,3,4,5,6)", 6)         # full set is on-shell zero (momentum cons.)
+    print("Mandelstam, independent of n, with no momentum conservation baked in:")
+    _is_zero("s(1)", 4)                   # s of at most one leg is 0 by masslessness, at any n
+    # s_I expands the same way regardless of n, with no complement swap and no zeroing of the
+    # full set. These on-shell identities still hold by the verifier.
+    _is_zero("s(1,2,3,4,5,6)", 6)         # the full set is on-shell zero by momentum conservation
     _eq("s(1,2,6)", 6, sp.sympify(atomize("s(3,4,5)", 6), locals=_LOC))  # s_I == s_complement on-shell
-    # s(1,2) stays a bracket even at n=2 (NOT 0) — n-independence (verifier needs n>=4,
-    # so check the string directly):
-    # (parens come from the default allow_opaque_den num-wrapping; the leading minus is
-    # the textbook s=<ij>[ji]=-ab*sb convention)
+    # s(1,2) stays a bracket even at n=2, independent of n. The verifier needs n>=4, so the
+    # string is checked directly. The parentheses come from the default allow_opaque_den
+    # numerator wrapping, and the leading minus from the textbook s=<ij>[ji]=-ab*sb.
     _str_eq("s(1,2)", 2, "(-ab(1, 2)*sb(1, 2))")
     _str_eq("s(1,2)", 6, "(-ab(1, 2)*sb(1, 2))")
 
@@ -111,8 +110,8 @@ def main():
     _accepts_opaque("ab(4,5)/s(1,2,3)", 6, "multi-particle s in denominator")
     _accepts_opaque("ab(3,4)/chain('as',5,[1,6],2)", 6, "multi-leg chain in denominator")
     _accepts_opaque("1/s(1,2,3)", 4, "3-particle pole in denominator (sum)")
-    _rejects("1/s(1)", 4, "s(1)=0 -> 1/0 singular")  # genuine singularity, still rejected
-    # strict path (allow_opaque_den=False) still enforces the monomial-denominator guard:
+    _rejects("1/s(1)", 4, "s(1)=0 -> 1/0 singular")  # a singularity, rejected
+    # The strict path with allow_opaque_den=False keeps the monomial-denominator rule.
     try:
         atomize("1/s(1,2,3)", 4, allow_opaque_den=False)
         print(f"  [FAIL] {'1/s(1,2,3) [strict]':42} should reject in strict mode")

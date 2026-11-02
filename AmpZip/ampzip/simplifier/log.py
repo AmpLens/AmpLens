@@ -1,8 +1,9 @@
 """Timestamped JSONL logger for CLI invocations.
 
-One CLI call → one log line, schema = CLIInvocation.to_dict(). Append-only.
-Default location: `$AMPZIP_LOG_DIR/cli.jsonl`, else `<user log dir>/ampzip/cli.jsonl`
-(`platformdirs.user_log_dir`; `~/.local/state/ampzip/log` without platformdirs).
+Each CLI call appends one log line in the schema of CLIInvocation.to_dict(). The default
+location is `$AMPZIP_LOG_DIR/cli.jsonl`, else `<user log dir>/ampzip/cli.jsonl`, the user
+log dir being `platformdirs.user_log_dir`, or `~/.local/state/ampzip/log` without
+platformdirs.
 """
 
 from __future__ import annotations

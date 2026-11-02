@@ -48,9 +48,9 @@ web = [
   # Other authentication modes do not require it.
   "cryptography>=3.4; (sys_platform != 'win32' or platform_machine != 'ARM64') and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
 ]
-# The learned backends run two upstream packages that `ampzip fetch-backends` clones onto the
-# user's machine; these extras only install what those packages import.
-# Both backends import the same upstream environment package, which pulls in all of these.
+# The neural baselines run two research packages that `ampzip fetch-backends` clones onto the
+# user's machine. These extras install only what those packages import. Both backends import
+# the same environment package, which pulls in all of these.
 ml = ["torch>=2.0", "tqdm>=4.64", "gymnasium>=0.29", "pandas>=2", "diophantine>=0.2", "wolframclient>=1.1"]
 sft = ["ampzip[ml]"]
 cds = ["ampzip[ml]", "gdown>=5"]

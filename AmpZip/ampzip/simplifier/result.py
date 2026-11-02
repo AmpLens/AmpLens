@@ -1,4 +1,4 @@
-"""Result dataclasses. Serializable to JSON for log records."""
+"""The result dataclasses, serialisable to JSON for log records."""
 
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 
 @dataclass
 class ValidationIssue:
-    tag: str            # e.g. "LIMIT_ATOM_UNKNOWN"
+    tag: str            # such as "LIMIT_ATOM_UNKNOWN"
     message: str
     detail: Optional[Dict[str, Any]] = None
 
@@ -16,7 +16,7 @@ class ValidationIssue:
 class ValidationResult:
     ok: bool
     inferred_n_point: Optional[int]
-    canonical_expr_str: Optional[str]   # parsed expression in SymPy notation
+    canonical_expr_str: Optional[str]   # the parsed expression in sympy notation
     issues: List[ValidationIssue] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -26,17 +26,17 @@ class ValidationResult:
 
 @dataclass
 class AlgorithmResult:
-    algorithm: str               # e.g. "sft_greedy"
-    final_expr_str: str          # final expression reported by the backend
+    algorithm: str               # such as "sft_greedy"
+    final_expr_str: str          # the final expression reported by the backend
     bracket_count_start: int
     bracket_count_final: int
     bracket_count_min: int
     n_steps: int
-    solved: bool                 # vs supplied target if any
+    solved: bool                 # against the supplied target, if any
     timed_out: bool
     duration_s: float
-    min_expr_str: str = ""       # best expression selected by the backend
-    derivation: Optional[List[Dict[str, Any]]] = None   # per-step actions, optional
+    min_expr_str: str = ""       # the best expression selected by the backend
+    derivation: Optional[List[Dict[str, Any]]] = None   # the per-step moves, optional
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -45,7 +45,7 @@ class AlgorithmResult:
 
 @dataclass
 class CLIInvocation:
-    """Full record of one CLI call. JSONL-serializable."""
+    """The full record of one CLI call, serialisable to JSONL."""
     timestamp_utc: str
     invocation_id: str
     cwd: str
@@ -54,8 +54,8 @@ class CLIInvocation:
     validation: ValidationResult
     results: List[AlgorithmResult] = field(default_factory=list)
     error: Optional[str] = None
-    # Wall-clock breakdown (seconds). Compare against per-algorithm
-    # AlgorithmResult.duration_s to see import/load overhead.
+    # The wall-clock breakdown in seconds. Compared with each AlgorithmResult.duration_s it
+    # shows the import and load overhead.
     validation_duration_s: float = 0.0
     total_duration_s: float = 0.0
 

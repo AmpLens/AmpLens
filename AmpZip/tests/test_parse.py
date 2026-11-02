@@ -1,4 +1,4 @@
-"""The expression parser: admits exactly the arithmetic the gate accepted through sympify,
+"""The expression parser admits the arithmetic the input check accepted through sympify,
 builds the same sympy objects, and executes nothing.
 
 Run:  python tests/test_parse.py   (or via tests/run_tests.py)
@@ -21,8 +21,8 @@ from ampzip.simplifier.atomize import atomize  # noqa: E402
 ab, sb = _get_bracket_classes()
 LOCAL = {"ab": ab, "sb": sb, "I": sp.I, "opaque_den": sp.Function("opaque_den")}
 
-# Strings that must build the same object the gate used to get from sympify. sympify is the
-# reference oracle here and nowhere else.
+# Strings that build the same object the input check used to get from sympify, the
+# reference here.
 PARITY = [
     "ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))",
     "ab(1,3)*sb(2,4)/(ab(1,2)*sb(1,2))",
@@ -42,7 +42,7 @@ PARITY = [
     "x*ab(1,2)",                         # stray symbol
 ]
 
-# Nothing in this list may execute, and each must be refused outright.
+# Each string in this list is refused without executing anything.
 ATTACKS = [
     "__import__('os').system('id')",
     "ab(1,2).__class__",

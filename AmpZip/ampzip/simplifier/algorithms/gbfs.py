@@ -1,20 +1,20 @@
-"""gbfs backend — model-free greedy best-first search over the fast Rust engine.
+"""The gbfs backend, best-first search over the engine.
 
-No neural network: best-first over `ampzip_engine` ranked by bracket count, exploring
-legal identity moves until the budget is spent, returning the smallest form found. By default
-the run is **target-free**. With a target and a target criterion the
-search stops at the first node that meets the criterion (the paper's target-stopped runs).
+The search is best-first over `ampzip_engine`, ranked by bracket count, exploring legal
+moves until the budget is spent and returning the smallest form found. By default the run
+is target-free. With a target and a target criterion the search stops at the first node that
+meets the criterion, the paper's target-stopped runs.
 
-Every move is value-preserving by construction; we additionally **gate** the returned answer
-through the exact mod-p verifier (`ampzip.verify.equal`) before presenting it. A result whose
-verification fails or cannot be completed is withheld, never shown as unverified.
+Every move is value-preserving by construction, and the returned answer passes the
+finite-field test of `ampzip.verify.equal` before it is presented. A result whose test fails
+or cannot be completed is withheld.
 
-Every way the search can stop or skip work is reported in `extra`: `stop_reason` (goal /
-budget / time / frontier_empty / cancelled / patience), the per-cause skip counters, and the
-parameters that bounded the run. `timed_out` is exactly `stop_reason == "time"`.
+Every way the search can stop or skip work is reported in `extra`, with `stop_reason` one of
+goal, budget, time, frontier_empty, cancelled and patience, the per-cause skip counters, and
+the parameters that bounded the run. `timed_out` is exactly `stop_reason == "time"`.
 
-Imports of the engine are lazy (inside `run`) so the runner still imports even where
-`ampzip_engine` (the Rust extension) isn't built — gbfs just errors at call time there.
+The engine is imported inside `run`, so the runner imports even where `ampzip_engine` is not
+built, and gbfs errors at call time there.
 """
 from __future__ import annotations
 
@@ -33,24 +33,24 @@ from ..limits import (DEFAULT_GBFS_MAX_APPS, DEFAULT_GBFS_MAX_SECONDS, DEFAULT_G
 
 def verify_equal(a: str, b: str, n_point: int):
     """Finite-field equality of two expression strings with a reproducible, input-derived
-    random stream. Returns `(verdict, note)`: verdict True/False, or None when the check could
-    not be completed (note says why). An inconclusive sampling run is retried once with a
-    second seed before giving up."""
+    random stream. Returns `(verdict, note)`, verdict True or False, or None when the test
+    could not be completed, in which case note says why. An inconclusive sampling run is
+    retried once with a second seed."""
     from ampzip.verify import equal
     for attempt in ("", ":retry"):
         try:
             return equal(a, b, n_point, rng=gate_rng(a + attempt, b)) is True, None
-        except RuntimeError as exc:          # inconclusive: too many singular sample points
+        except RuntimeError as exc:          # inconclusive, too many singular sample points
             note = f"inconclusive: {exc}"
             continue
-        except Exception as exc:  # noqa: BLE001 - unsupported input / evaluation failure
+        except Exception as exc:  # noqa: BLE001  an unsupported input or evaluation failure
             return None, f"{type(exc).__name__}: {exc}"
     return None, note
 
 
 def withheld(name: str, expr, start_brackets: int, duration: float, reason: str, rejected: str,
              **extra) -> AlgorithmResult:
-    """The result returned when the answer cannot be presented: the input, unchanged."""
+    """The result returned when the answer cannot be presented, the input unchanged."""
     return AlgorithmResult(
         algorithm=name, final_expr_str=str(expr), min_expr_str=str(expr),
         bracket_count_start=start_brackets, bracket_count_final=start_brackets,
@@ -63,10 +63,10 @@ def withheld(name: str, expr, start_brackets: int, duration: float, reason: str,
 class GBFS:
     name = "model_free_gbfs"
 
-    # Subclasses override these to swap the simplicity objective. The defaults reproduce the
-    # paper's gbfs exactly: factored numerator bracket count, no denominator-aware bias.
-    objective_fn = None          # None -> engine's factored-bracket `heuristic`
-    use_den_aware = False        # class default for `den_aware` (constructor overrides)
+    # Subclasses override these to swap the objective. The defaults reproduce the paper's gbfs
+    # exactly, the factored numerator bracket count with no denominator-aware bias.
+    objective_fn = None          # None means the engine's factored-bracket `heuristic`
+    use_den_aware = False        # the class default for `den_aware`, which the constructor overrides
 
     def __init__(self, max_apps: int = DEFAULT_GBFS_MAX_APPS,
                  max_seconds: float = DEFAULT_GBFS_MAX_SECONDS,
@@ -80,9 +80,9 @@ class GBFS:
                  **_ignored):
         self.max_apps = max_apps
         self.max_seconds = max_seconds
-        # Per-move numerator term cap (guards a combinatorial substitution blow-up). Passed to
-        # every apply() so the search skips only the exploding move and keeps going; each skip
-        # is counted (`term_limit_skips`). Inherited by all gbfs variants.
+        # The per-move numerator term cap, which guards against a combinatorial substitution
+        # blow-up. It is passed to every apply() so the search skips only the exploding move and
+        # keeps going, and each skip is counted in `term_limit_skips`. All gbfs variants inherit it.
         self.max_terms = max_terms
         self.den_aware = self.use_den_aware if den_aware is None else bool(den_aware)
         if ordering not in GBFS_ORDERINGS:
@@ -101,7 +101,7 @@ class GBFS:
 
     # --- frontier ordering ------------------------------------------------------------- #
     def _value_fn(self):
-        """The `value_fn` handed to the engine search: None for the paper's factored ordering,
+        """The `value_fn` handed to the engine search, None for the paper's factored ordering,
         the raw numerator count for gbfsraw, or the denominator-aware bias when asked for."""
         if self.ordering == "raw":
             return lambda h: h.bracket_count()
@@ -111,7 +111,7 @@ class GBFS:
         return None
 
     def _goal_kwargs(self, target) -> dict:
-        """Target-stopped search: the raw-count goal(s) for the chosen criterion."""
+        """The raw-count goals of a target-stopped search for the chosen criterion."""
         if target is None or self.target_criterion == "none":
             return {}
         from ampzip.search.gbfs import new_expr
@@ -134,21 +134,20 @@ class GBFS:
         expr: sp.Expr,
         n_point: int,
         target: Optional[sp.Expr] = None,
-        max_steps: int = 50,                 # ignored (gbfs is not step-budgeted)
+        max_steps: int = 50,                 # ignored, since gbfs has no step budget
         per_step_timeout: float = 30.0,      # ignored
-        sample_timeout: float = 120.0,       # ignored (SFT/CDS rollout budget; gbfs is bounded by max_seconds only)
+        sample_timeout: float = 120.0,       # ignored, the SFT and CDS rollout budget
         capture_derivation: bool = False,
         simplify_mode: str = "none",
         sft_patience: int = 0,               # ignored
-        cancel_event=None,                   # threading.Event; checked during node expansion
+        cancel_event=None,                   # a threading.Event checked during node expansion
         **kwargs,                            # absorb any other runner kwargs
     ) -> AlgorithmResult:
         start_brackets = _count_brackets(expr)
         t0 = time.time()
         # The wall-clock budget is max_seconds alone. sample_timeout is the SFT/CDS rollout
-        # budget and is NOT folded in (it used to be, silently capping every gbfs run at
-        # the 120 s default). Deployments bound this through
-        # the ceiling applied to gbfs_max_seconds (web: WEBSVC_MAX_GBFS_MAX_SECONDS).
+        # budget. Deployments bound this through
+        # the limit on gbfs_max_seconds, WEBSVC_MAX_GBFS_MAX_SECONDS on the web.
         budget_s = self.max_seconds
         expr_str = str(expr)
         target_str = None if target is None else str(target)
@@ -182,16 +181,16 @@ class GBFS:
         else:
             final_str, bk_final = best_str, res["best_brackets"]
 
-        # --- soundness gate: the presented answer must be on-shell equal to the input ---
+        # --- the presented answer must equal the input on shell ---
         sound, note = verify_equal(best_str, expr_str, n_point)
         if sound is not True:
             return withheld(self.name, expr, start_brackets, duration,
-                            ("soundness check FAILED (gbfs output not on-shell equal to input)"
-                             if sound is False else f"soundness check could not be completed ({note})")
-                            + " — result withheld", best_str,
+                            ("the finite-field test failed, the gbfs output differing from the input on shell"
+                             if sound is False else f"the finite-field test could not be completed, {note}")
+                            + ", so the result is withheld", best_str,
                             stop_reason=res["stop_reason"], apps=res["apps"], **self._params())
 
-        # --- solved: target-relative when a target is given ---
+        # --- solved, target-relative when a target is given ---
         target_counts = {}
         target_equal = None
         if target is None:
@@ -207,8 +206,8 @@ class GBFS:
             if tnote:
                 target_counts["target_check_note"] = tnote
 
-        # Raw (pre-post-process) bracket count of the search's best node, in the sympy display
-        # metric used for the path rows. The front-end matches derivation rows against this to
+        # The bracket count of the search's best node before post-processing, in the sympy
+        # display count used for the path rows. The page matches derivation rows against it to
         # locate the proving prefix, so it must equal the final derivation row's brackets_after.
         raw_min = count_brackets_bounded(best_str, timeout_s=self.post_timeout_s)
         if raw_min < 0:
@@ -219,8 +218,8 @@ class GBFS:
         path_exprs = res.get("path_exprs", [])
         path_moves = res.get("path_moves", [])
         if capture_derivation:
-            # Rows in the schema the front-end / SFT backends use (expr_after / brackets_before /
-            # brackets_after / identity / bracket / term_slot), zipping path_exprs with path_moves.
+            # Rows in the schema the page and the SFT backends use, expr_after, brackets_before,
+            # brackets_after, identity, bracket and term_slot, zipping path_exprs with path_moves.
             from ampzip.search.actions import move_rule
 
             def _bc(s):
@@ -257,14 +256,14 @@ class GBFS:
             audit = {"steps": max(len(path_exprs) - 1, 0), "step_bad": bad, "notes": notes}
             if bad:
                 return withheld(self.name, expr, start_brackets, duration,
-                                f"derivation audit FAILED at step(s) {bad} — result withheld",
+                                f"the derivation audit failed at step {bad}, so the result is withheld",
                                 best_str, audit=audit, stop_reason=res["stop_reason"],
                                 **self._params())
 
         return AlgorithmResult(
             algorithm=self.name,
             final_expr_str=final_str,
-            min_expr_str=final_str,                 # gbfs returns one (the smallest) form
+            min_expr_str=final_str,                 # gbfs returns one form, the smallest
             bracket_count_start=start_brackets,
             bracket_count_final=bk_final,
             bracket_count_min=bk_final,
@@ -280,7 +279,7 @@ class GBFS:
                 "is_zero": res["is_zero"],
                 "goal_reached": res["goal_reached"],
                 "stop_reason": res["stop_reason"],
-                "stopped": res.get("stopped", False),   # user-cancelled mid-search
+                "stopped": res.get("stopped", False),   # cancelled by the user mid-search
                 "term_limit_skips": res["term_limit_skips"],
                 "overflow_skips": res["overflow_skips"],
                 "engine_error_skips": res["engine_error_skips"],

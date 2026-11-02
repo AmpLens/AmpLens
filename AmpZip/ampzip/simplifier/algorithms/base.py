@@ -1,4 +1,4 @@
-"""Algorithm protocol — every backend implements this."""
+"""The algorithm protocol every backend implements."""
 
 from __future__ import annotations
 from typing import Protocol, Optional, runtime_checkable
@@ -23,5 +23,5 @@ class Algorithm(Protocol):
         capture_derivation: bool = False,
         simplify_mode: str = "none",
         sft_patience: int = 0,
-        cancel_event=None,   # threading.Event for cooperative cancel (gbfs + SFT)
+        cancel_event=None,   # a threading.Event for cooperative cancellation in gbfs and SFT
     ) -> AlgorithmResult: ...

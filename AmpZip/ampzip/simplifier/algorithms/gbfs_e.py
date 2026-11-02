@@ -1,52 +1,47 @@
-"""GBFS version E ("version E") — per-term simplification DRIVER (decomposition strategy).
+"""The gbfs_e variant, a per-term driver.
 
-Version (e) (see `docs/GBFS_VARIANTS.md`): **split the numerator into its additive terms and simplify each term as an independent
-sub-problem, then recombine.** This is a *decomposition strategy* (search-axis 3), NOT a new
-simplicity objective — it is orthogonal to which objective each per-term sub-search uses, and it
-wraps the same model-free engine that the default search and (d) drive.
+As `docs/GBFS_VARIANTS.md` describes, gbfs_e splits the numerator into its additive terms,
+simplifies each term as an independent sub-problem and recombines. This decomposition is
+orthogonal to the objective each per-term sub-search uses, and it drives the same engine as
+the default search and gbfs_d.
 
-Why it is a different notion of "simple", not a strictly-better one:
-  * It serves the "local-factorized-simple / local objects" notion of simplicity — break an
-    expression into simpler components with the same denominator: each additive term is reduced
-    on its own, giving a per-term-local form rather than the globally-smallest form the default search and (d) chase.
-  * Independent term searches cannot use cancellations that require joint rewrites
-    of different terms. This can make them less effective than the default search
-    and variant (d) for expressions that vanish identically or for spurious-pole
-    cancellations that require such rewrites.
-  * The *win*: on compact chain/opaque inputs, keeping the terms separate AVOIDS the
-    `sp.cancel`-over-a-common-denominator blow-up that inflates a monolithic backend's display
-    (a 3-term compact form can `cancel` into 1000+ brackets). (e) keeps each term compact.
+It serves the local notion of simplicity, breaking an expression into simpler components
+with the same denominator. Each additive term is reduced on its own, giving a per-term-local
+form. Independent term searches cannot use cancellations that require joint rewrites of
+different terms, which can make them less effective than the default search and gbfs_d for
+expressions that vanish identically or for spurious-pole cancellations. On compact chain and
+sum-denominator inputs, keeping the terms separate skips the `sp.cancel` over a common
+denominator that inflates a monolithic backend's display, a three-term compact form being
+able to cancel into more than 1000 brackets. gbfs_e keeps each term compact.
 
-### Where the split happens — BEFORE the common denominator (fixed 2026-07-14)
+The split happens before the common denominator. The atomizer combines a summed input into
+one fraction over a common denominator through `sp.together` in
+`atomize._rewrite_with_opaque_den`, so by the time a sympy `expr` reaches an algorithm the
+additive structure is gone and a three-term input arrives as a single `Mul`. gbfs_e therefore
+splits the raw input string from before atomization at its top-level `+` and `-` through the
+AST, atomizes each term separately so each keeps its own denominator, possibly a sum, and
+runs the engine per term. `runner.run_all` threads the raw string in as the `raw_input`
+kwarg, from the CLI's `record.raw_input` or the web's `body.expr`.
 
-The atomizer combines a summed input into ONE fraction over a common denominator (`sp.together`
-inside `atomize._rewrite_with_opaque_den`), so by the time a sympy `expr` reaches an algorithm the
-original additive structure is already gone (a 3-term input arrives as a single `Mul`). To honor
-"split by the ORIGINAL additive terms", (e) therefore splits the **raw pre-atomize input string**
-at its top-level `+`/`-` (via the AST), atomizes each term *separately* (each keeps its own —
-possibly opaque — denominator), and runs the engine per term. The raw string is threaded in as the
-`raw_input` kwarg by `runner.run_all` (from the CLI's `record.raw_input` / the web's original
-`body.expr`).
+The fallbacks preserve the value. Without `raw_input`, when
+called directly or when the raw text does not parse, the numerator of `sp.together(expr)` is
+split into its `Add.make_args` terms over the common denominator without `expand`, since
+expanding a compact numerator once blew a three-term input up into more than 100 terms and
+collapsed gbfs_e into a whole-expression search. With a single additive term, a pure monomial
+or product, or with more than `MAX_SPLIT_TERMS` terms, one whole-expression search runs. The
+reason the raw split was skipped is surfaced in `extra["raw_split_skipped"]` as one of
+no_raw_input, unparseable, single_term, cap and atomize_error, or None when the raw split
+succeeded. `extra["split_capped"]` only fires on the expression-level fallback, so on a
+sum-denominator input the cap shows up as `raw_split_skipped == "cap"` with `split_capped`
+still False.
 
-Fallbacks, all value-preserving and soundness-gated:
-  * **No raw_input** (called directly, or raw unparseable): fall back to splitting the numerator of
-    `sp.together(expr)` into `Add.make_args` terms over the common denominator — WITHOUT `expand`
-    (expanding a compact numerator is what used to explode a 3-term input into 100+ terms and made
-    (e) collapse to a whole-expression search).
-  * **A single additive term** (`k == 1`, a pure monomial/product) or **more than `MAX_SPLIT_TERMS`
-    terms**: run one whole-expression search. The reason the raw split was skipped is surfaced in
-    `extra["raw_split_skipped"]` (one of no_raw_input / unparseable / single_term / cap /
-    atomize_error, or None when the raw split succeeded); note `extra["split_capped"]` only ever
-    fires on the expr-level fallback, so on an OPAQUE input the cap shows up as
-    `raw_split_skipped == "cap"`, not `split_capped == True`.
+Recombination skips `together` and `cancel` on the sum, which would re-merge the terms and
+reintroduce the blow-up. Each per-term best is optionally post-processed on its own, then the
+pieces are summed and the recombined result is checked against the input by the finite-field
+test.
 
-Recombination deliberately does NOT re-`together`/`cancel` the sum (that would re-merge the terms
-and reintroduce the blow-up); each per-term best is optionally post-processed on its own, then the
-pieces are summed and the recombined result is mod-p soundness-gated against the input.
-
-Open question: whether the per-term objective
-should default to the baseline bracket count (current) or the version-D atom count. One-line
-class-attribute swap (`per_term_objective_fn`). See `docs/GBFS_VARIANTS.md`.
+Whether the per-term objective should default to the bracket count, as now, or to gbfs_d's
+atom count is open. It is one class attribute, `per_term_objective_fn`.
 """
 from __future__ import annotations
 
@@ -62,29 +57,29 @@ from .gbfs import GBFS, verify_equal, withheld
 from ._post import judge_solved, post_process
 from ..limits import DEFAULT_GBFS_SPLIT_MAX_TERMS
 
-# The split cap is a constructor parameter (`split_max_terms`, CLI `--gbfs-split-max-terms`,
-# default limits.DEFAULT_GBFS_SPLIT_MAX_TERMS); above it the input is searched whole and the
-# result says so (extra["split_capped"], extra["raw_split_skipped"]).
+# The split cap is the constructor parameter `split_max_terms`, the CLI's
+# `--gbfs-split-max-terms`, with the default limits.DEFAULT_GBFS_SPLIT_MAX_TERMS. Above it the
+# input is searched whole and extra["split_capped"] and extra["raw_split_skipped"] say so.
 
 
 class GBFSVersionE(GBFS):
     name = "gbfs_e"
 
-    # Objective each per-term sub-search optimises. None -> engine's factored-bracket `heuristic`
-    # (the baseline "normal simplifier"). Swap to `ampzip.search.objective_atoms.atom_heuristic`
-    # for a per-term version-D. The den-aware frontier bias is off (per-term pieces are small and
-    # we want a deterministic, order-independent per-term answer).
+    # The objective each per-term sub-search optimises. None means the engine's factored-bracket
+    # `heuristic`. `ampzip.search.objective_atoms.atom_heuristic` gives a per-term gbfs_d. The
+    # denominator-aware frontier bias is off, since the pieces are small and the per-term answer
+    # should be deterministic and order-independent.
     per_term_objective_fn = None
     use_den_aware = False
 
-    # This driver needs the ORIGINAL pre-atomize string (to split at the top-level +/- before
-    # atomize's sp.together merges the terms). runner.run_all threads it into run() as raw_input
-    # for any algorithm whose class sets this True (see runner.py). gbfs_f inherits it.
+    # This driver needs the input string from before atomization, to split at the top-level + and
+    # - before atomize's sp.together merges the terms. runner.run_all threads it into run() as
+    # raw_input for any algorithm whose class sets this True. gbfs_f inherits it.
     wants_raw_input = True
 
     def __init__(self, *args, split_max_terms: int = DEFAULT_GBFS_SPLIT_MAX_TERMS, **kwargs):
         super().__init__(*args, **kwargs)
-        self.split_max_terms = int(split_max_terms)   # 0 = no cap
+        self.split_max_terms = int(split_max_terms)   # 0 means no cap
 
     def _over_split_cap(self, k: int) -> bool:
         return self.split_max_terms > 0 and k > self.split_max_terms
@@ -92,12 +87,11 @@ class GBFSVersionE(GBFS):
     # -- splitting -------------------------------------------------------------------------- #
     def _split_raw(self, raw_input: str, n_point: int,
                    loc: dict) -> Tuple[Optional[List[sp.Expr]], Optional[str]]:
-        """Split the ORIGINAL raw input at its top-level +/- (AST) and atomize each term
-        separately, so each additive term keeps its own (pre-common-denominator) denominator.
-        Returns `(pieces, None)` on success, or `(None, reason)` to signal 'fall back to the
-        expr-level split', where reason is one of {"unparseable", "single_term", "cap",
-        "atomize_error"} so the caller can surface WHY the raw split was skipped (never silent —
-        see extra["raw_split_skipped"])."""
+        """Split the raw input at its top-level + and - through the AST and atomize each term
+        separately, so each additive term keeps the denominator it had before the common
+        denominator. Returns `(pieces, None)` on success, or `(None, reason)` to request the
+        expression-level split, with reason one of "unparseable", "single_term", "cap" and
+        "atomize_error", which the caller surfaces in extra["raw_split_skipped"]."""
         from ..atomize import atomize, AtomizeError
         try:
             node = ast.parse(raw_input, mode="eval").body
@@ -113,19 +107,19 @@ class GBFSVersionE(GBFS):
         if len(terms) <= 1:
             return None, "single_term"
         if self._over_split_cap(len(terms)):
-            return None, "cap"  # too many -> caller takes the capped whole-expression path
+            return None, "cap"  # too many terms, so the caller searches the whole expression
         pieces: List[sp.Expr] = []
         for op, sub in terms:
             try:
                 e = sp.sympify(atomize(ast.unparse(sub), n_hint=n_point), locals=loc)
             except (AtomizeError, Exception):  # noqa: BLE001
-                return None, "atomize_error"  # any term fails -> abandon raw split
+                return None, "atomize_error"  # a term that fails abandons the raw split
             pieces.append(e if op == "Add" else -e)
         return pieces, None
 
     def _split_expr(self, expr: sp.Expr) -> Tuple[List[sp.Expr], int, bool]:
-        """Fallback split (no raw input): the additive terms of the common-denominator numerator,
-        WITHOUT expand. Returns (pieces, n_terms, capped)."""
+        """The fallback split without raw input, the additive terms of the common-denominator
+        numerator without expand. Returns (pieces, n_terms, capped)."""
         together = sp.together(expr)
         num, den = sp.fraction(together)
         terms = sp.Add.make_args(num)
@@ -136,17 +130,16 @@ class GBFSVersionE(GBFS):
             return [together], n, True
         return [t / den for t in terms], n, False
 
-    # -- per-piece search + recombination seam ---------------------------------------------- #
-    # These two hooks are the ONLY seam gbfs_f overrides. (e)'s behavior is unchanged: it searches
-    # every piece and accepts the sum of searched pieces verbatim.
+    # -- per-piece search and recombination seam -------------------------------------------- #
+    # These two hooks are the seam gbfs_f overrides. gbfs_e searches every piece and accepts the
+    # sum of the searched pieces verbatim.
     def _search_piece(self, piece, n_point, piece_budget, simplify_mode,
                       cancel_event, loc, gbfs_simplify, ab_cls, sb_cls, piece_apps=None):
-        """Search ONE additive piece. Returns (chosen, searched, row, res):
-          chosen   — the piece to accumulate into the running recombination (for (e) == searched);
-          searched — the engine's post-processed result (kept distinct so gbfs_f can offer the
-                     all-searched candidate even when it rejects the searched piece per-piece);
-          row      — the per_term telemetry dict;
-          res      — the raw engine result (accumulators stay in run(), out of every override).
+        """Search one additive piece and return (chosen, searched, row, res). `chosen` is the
+        piece to accumulate into the running recombination, which for gbfs_e is `searched`, the
+        engine's post-processed result, kept distinct so gbfs_f can offer the all-searched
+        candidate even when it rejects the searched piece. `row` is the per_term telemetry dict
+        and `res` the raw engine result. The accumulators stay in run(), out of every override.
         """
         res = gbfs_simplify(
             str(piece), n_point, max_apps=(self.max_apps if piece_apps is None else piece_apps),
@@ -155,7 +148,7 @@ class GBFSVersionE(GBFS):
             should_stop=(cancel_event.is_set if cancel_event is not None else None),
             max_terms=self.max_terms, threads=self.threads,
         )
-        # Post-process each piece on its own (safe: no cross-term re-merge), bounded.
+        # Post-process each piece on its own, bounded, with no cross-term re-merge.
         post = post_process(res["best_expr"], simplify_mode, timeout_s=self.post_timeout_s)
         best_str = post.expr_str if post.bracket_count >= 0 else res["best_expr"]
         best_piece = sp.sympify(best_str, locals=loc)
@@ -171,8 +164,8 @@ class GBFSVersionE(GBFS):
         return best_piece, best_piece, row, res
 
     def _recombine(self, mixed, orig_pieces, searched_pieces, expr):
-        """Hook: choose the final expression from the accumulated pieces. (e) accepts the
-        per-piece mix unconditionally and adds nothing to extra. Returns (expr, guard_extra)."""
+        """Choose the final expression from the accumulated pieces. gbfs_e accepts the per-piece
+        mix unconditionally and adds nothing to extra. Returns (expr, guard_extra)."""
         return mixed, {}
 
     # -- run -------------------------------------------------------------------------------- #
@@ -181,22 +174,21 @@ class GBFSVersionE(GBFS):
         expr: sp.Expr,
         n_point: int,
         target: Optional[sp.Expr] = None,
-        max_steps: int = 50,                 # ignored (gbfs is not step-budgeted)
+        max_steps: int = 50,                 # ignored, since gbfs has no step budget
         per_step_timeout: float = 30.0,      # ignored
-        sample_timeout: float = 120.0,       # ignored (SFT/CDS rollout budget; gbfs is bounded by max_seconds only)
-        capture_derivation: bool = False,    # per-term driver emits a per-term summary, not a chain
+        sample_timeout: float = 120.0,       # ignored, the SFT and CDS rollout budget
+        capture_derivation: bool = False,    # the per-term driver emits a per-term summary
         simplify_mode: str = "none",
         sft_patience: int = 0,               # ignored
-        cancel_event=None,                   # threading.Event; checked between terms and during search
-        raw_input: Optional[str] = None,     # ORIGINAL pre-atomize input, for the pre-common-den split
+        cancel_event=None,                   # a threading.Event checked between terms and during search
+        raw_input: Optional[str] = None,     # the input before atomization, for the split
         **kwargs,                            # absorb any other runner kwargs
     ) -> AlgorithmResult:
         start_brackets = _count_brackets(expr)
         t0 = time.time()
         # The wall-clock budget is max_seconds alone. sample_timeout is the SFT/CDS rollout
-        # budget and is NOT folded in (it used to be, silently capping every gbfs run at
-        # the 120 s default). Deployments bound this through
-        # the ceiling applied to gbfs_max_seconds (web: WEBSVC_MAX_GBFS_MAX_SECONDS).
+        # budget. Deployments bound this through
+        # the limit on gbfs_max_seconds, WEBSVC_MAX_GBFS_MAX_SECONDS on the web.
         budget_s = self.max_seconds
 
         try:
@@ -216,8 +208,8 @@ class GBFSVersionE(GBFS):
 
             recombined = sp.Integer(0)
             per_term = []
-            orig_pieces = []       # the original (un-searched) pieces, in order
-            searched_pieces = []   # the engine's per-piece results, in order (kept aligned)
+            orig_pieces = []       # the un-searched pieces, in order
+            searched_pieces = []   # the engine's per-piece results, aligned with them
             total_apps = total_expanded = 0
             depth_sum = 0
             stopped = False
@@ -228,11 +220,11 @@ class GBFSVersionE(GBFS):
                 remaining = (budget_s - elapsed) if budget_s is not None else None
                 remaining_apps = self.max_apps - total_apps
                 cancelled = cancel_event is not None and cancel_event.is_set()
-                # Out of time, apps or cancelled: keep the remaining pieces unsimplified (value-safe).
+                # Out of time or moves, or cancelled. The remaining pieces stay unsimplified.
                 if cancelled or (remaining is not None and remaining <= 0) or remaining_apps <= 0:
                     recombined += piece
                     orig_pieces.append(piece)
-                    searched_pieces.append(piece)   # no search -> searched == original
+                    searched_pieces.append(piece)   # no search, so searched equals original
                     stopped = stopped or cancelled
                     why = "cancelled" if cancelled else ("budget" if remaining_apps <= 0 else "time")
                     piece_reasons.append(why)
@@ -241,7 +233,7 @@ class GBFSVersionE(GBFS):
                                      "apps": 0, "stop_reason": why})
                     continue
                 n_left = len(pieces) - idx
-                # The variant-level budgets are true ceilings: what is left is shared evenly over
+                # The variant-level budgets bound all pieces together. What is left is shared evenly over
                 # the pieces still to run, and a piece that stops early hands its unused share on.
                 piece_budget = (remaining / n_left) if remaining is not None else None
                 piece_apps = remaining_apps // n_left if n_left > 1 else remaining_apps
@@ -260,13 +252,13 @@ class GBFSVersionE(GBFS):
                 stopped = stopped or res.get("stopped", False)
                 per_term.append(row)
 
-            # Recombination seam (gbfs_f overrides; (e) returns the mix unchanged, guard_extra={}).
+            # The recombination seam. gbfs_f overrides it and gbfs_e returns the mix unchanged.
             recombined, guard_extra = self._recombine(recombined, orig_pieces,
                                                       searched_pieces, expr)
-            # "No progress" = the winning candidate applied no net identity, so a smaller bracket
-            # count reflects a different SPELLING, not search: the raw input, the un-searched split
-            # baseline, OR the per-piece mix when every searched piece was rejected (kept_original).
-            # (e) never populates guard_winner, so this stays False for (e) — behavior unchanged.
+            # No progress means the winning candidate applied no net identity, so a smaller bracket
+            # count reflects a different spelling, the raw input, the un-searched split baseline, or
+            # the per-piece mix when every searched piece was rejected. gbfs_e never populates
+            # guard_winner, so this stays False for it.
             _winner = guard_extra.get("guard_winner")
             guard_no_progress = (
                 _winner in ("split_baseline", "input")
@@ -291,25 +283,25 @@ class GBFSVersionE(GBFS):
                 break
         if reason == "frontier_empty" and "goal" in piece_reasons:
             reason = "goal"
-        # Recombine WITHOUT re-together/cancel (that would re-merge the terms and reintroduce the
-        # common-denominator blow-up). The sum of per-term-simplified pieces IS the (e) answer.
+        # Recombine without together or cancel, which would re-merge the terms and reintroduce the
+        # common-denominator blow-up. The sum of the per-term-simplified pieces is the answer.
         final_str = str(recombined)
         bk_final = _count_brackets(recombined)
 
-        # gbfs_f can choose a candidate (the split baseline or the raw input) that applied NO
-        # identity — a smaller bracket count then reflects a different SPELLING, not search
-        # progress. In that case zero out the step count and refuse to report `solved` on the
-        # bracket delta alone. (e) never sets this flag, so its behavior is unchanged.
+        # gbfs_f can choose a candidate, the split baseline or the raw input, that applied no
+        # identity, so a smaller bracket count reflects a different spelling. In that case the step
+        # count is zero and `solved` is not reported on the bracket delta alone. gbfs_e never sets
+        # this flag.
         if guard_no_progress:
             depth_sum = 0
 
-        # --- soundness gate: the recombined answer must be on-shell equal to the input ---
+        # --- the recombined answer must equal the input on shell ---
         sound, note = verify_equal(final_str, str(expr), n_point)
         if sound is not True:
             return withheld(self.name, expr, start_brackets, duration,
-                            (f"soundness check FAILED ({self.name} recombined output not on-shell equal to input)"
-                             if sound is False else f"soundness check could not be completed ({note})")
-                            + " — result withheld", final_str, stop_reason=reason, **self._params())
+                            (f"the finite-field test failed, the {self.name} recombined output differing from the input on shell"
+                             if sound is False else f"the finite-field test could not be completed, {note}")
+                            + ", so the result is withheld", final_str, stop_reason=reason, **self._params())
         target_equal, target_counts = None, {}
         if target is None:
             solved = (not guard_no_progress) and (bk_final < start_brackets)
@@ -335,14 +327,14 @@ class GBFSVersionE(GBFS):
             solved=solved,
             timed_out=(reason == "time"),
             duration_s=duration,
-            derivation=None,   # per-term driver: k independent searches, no single linear chain
+            derivation=None,   # k independent searches give no single chain
             extra={
                 "strategy": "per_term_decomposition",
-                "split_mode": split_mode,        # "raw_terms" (pre-common-den) or "numerator_terms"
+                "split_mode": split_mode,        # "raw_terms" or "numerator_terms"
                 "n_terms": n_terms,
                 "n_pieces_searched": sum(1 for p in per_term if p["searched"]),
                 "split_capped": capped,
-                "raw_split_skipped": raw_skip_reason,   # None | no_raw_input | unparseable | single_term | cap | atomize_error
+                "raw_split_skipped": raw_skip_reason,   # None, no_raw_input, unparseable, single_term, cap or atomize_error
                 "max_split_terms": self.split_max_terms,
                 "per_term": per_term,
                 "apps": total_apps,
@@ -359,6 +351,6 @@ class GBFSVersionE(GBFS):
                 **target_counts,
                 "raw_final_expr": str(recombined),
                 "simplify_mode": simplify_mode,
-                **guard_extra,   # gbfs_f: guard_winner + guard_candidates; empty for (e)
+                **guard_extra,   # guard_winner and guard_candidates from gbfs_f, empty for gbfs_e
             },
         )

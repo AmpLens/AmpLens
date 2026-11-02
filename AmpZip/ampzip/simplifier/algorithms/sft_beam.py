@@ -1,8 +1,8 @@
-"""SFT-beam backend (best-of-N stochastic rollouts).
+"""The SFT best-of-N backend.
 
-Same model as SFT-greedy; runs N rollouts (1 greedy + N-1 at temperature T),
-returns the best result by bracket count. Reuses the backend cache from
-sft_greedy so the model is loaded only once.
+It runs N rollouts of the SFT-greedy model, one greedy and N-1 at temperature T, and
+returns the best result by bracket count. It reuses the backend cache of sft_greedy so the
+model is loaded only once.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class SFTBeam:
         capture_derivation: bool = False,
         simplify_mode: str = "none",
         sft_patience: int = 0,
-        cancel_event=None,          # threading.Event; stop between/within rollouts
+        cancel_event=None,          # a threading.Event checked between and within rollouts
     ) -> AlgorithmResult:
         import torch
         ckpt = self.checkpoint_path or _default_checkpoint_path(n_point)
@@ -63,15 +63,15 @@ class SFTBeam:
 
         should_stop = cancel_event.is_set if cancel_event is not None else None
         for rollout_idx in range(self.n_rollouts):
-            # Rollout 0 always runs (it stops early internally via should_stop, so
-            # `candidates` is never empty); after that, stop launching more rollouts
-            # once cancelled.
+            # Rollout 0 always runs, stopping early internally through should_stop, so
+            # `candidates` is never empty. After that, no more rollouts are launched once
+            # cancelled.
             if rollout_idx > 0 and should_stop is not None and should_stop():
                 break
             rollout_temp = 0.0 if rollout_idx == 0 else self.temperature
 
-            # Serialize the shared sympy worker per rollout so other jobs can
-            # interleave between rollouts (see _worker_lock in sft_greedy).
+            # Serialise the shared sympy worker per rollout so other jobs can interleave
+            # between rollouts, through _worker_lock of sft_greedy.
             with _worker_lock(n_point):
                 r = backend.eval_mod.evaluate_sample(
                     backend.model,
@@ -99,7 +99,7 @@ class SFTBeam:
 
         duration = time.time() - t0
 
-        # BT-lex best-of-N: pick lowest (min_brackets, min_terms, steps) lex.
+        # Pick the lexicographically lowest (min_brackets, min_terms, steps).
         best = min(candidates, key=lambda r: (
             r["min_brackets"], r.get("min_terms", float("inf")), r["steps"]
         ))

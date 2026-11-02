@@ -27,10 +27,10 @@ def test_reasons():
 
 
 def test_skip_counters_and_thread_independence():
-    # A tiny per-move term cap makes the engine reject expanding rewrites; the counters must
-    # be identical across thread counts, as must every other result field.
-    # The cap also bounds the input expansion (X has 3 terms), so 3 is the tightest cap that
-    # still parses the root; any rewrite that grows past 3 terms is then skipped and counted.
+    # A tiny per-move term cap makes the engine reject expanding rewrites. The counters must
+    # be identical across thread counts, as must every other result field. The cap also
+    # bounds the input expansion, and X has 3 terms, so 3 is the tightest cap that still
+    # parses the root. Any rewrite that grows past 3 terms is then skipped and counted.
     r1 = simplify(X, 4, max_apps=400, max_terms=3, threads=1)
     r4 = simplify(X, 4, max_apps=400, max_terms=3, threads=4)
     assert r1["term_limit_skips"] > 0

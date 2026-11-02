@@ -1,11 +1,11 @@
 """SFT-greedy backend.
 
-Wraps `RL_amplitudes_claude/src/eval_sft_{n}pt.py` (and `action_space_{n}pt.py`,
-`train_sft_transformer.py`) to perform a single greedy rollout on a user-supplied
-sympy expression.
+It wraps `RL_amplitudes_claude/src/eval_sft_{n}pt.py` with `action_space_{n}pt.py` and
+`train_sft_transformer.py` to perform a single greedy rollout on a user-supplied sympy
+expression.
 
-State: model + persistent sympy worker are *lazily* constructed on first call
-and reused across calls within the same process. Shutdown is automatic via atexit.
+The model and the persistent sympy worker are constructed lazily on the first call and
+reused across calls within the same process. atexit shuts them down.
 """
 
 from __future__ import annotations
@@ -24,16 +24,16 @@ from ..limits import SFT_LIMITS
 from ..result import AlgorithmResult
 from ._post import maybe_simplify
 
-_paths.assert_rl_repo_present()  # the upstream packages are fetched, not shipped
+_paths.assert_rl_repo_present()  # the research packages are fetched on the user's machine
 
 
 def _sft_bracket_classes():
-    """ab/sb classes used by the SFT rollout — same ones the validator uses."""
+    """The ab/sb classes the SFT rollout uses, the ones the validator uses too."""
     from ..validate import _get_bracket_classes
     return _get_bracket_classes()
 
 
-# Class-name suffix per n_point in action_space_*pt.py
+# The class-name suffix per n_point in action_space_*pt.py
 _ACTION_SPACE_CLASS = {
     4: "TermSpecificActionSpace",
     5: "TermSpecificActionSpace5pt",
@@ -41,14 +41,14 @@ _ACTION_SPACE_CLASS = {
 }
 
 class _LoadedBackend:
-    """One per (n_point) — caches model + action_space + the eval module."""
+    """One per n_point, caching the model, the action space and the eval module."""
 
     def __init__(self, n_point: int, checkpoint_path: Path, device: str):
         self.n_point = n_point
         self.device = device
         self.checkpoint_path = checkpoint_path
 
-        # Dynamic imports against the n_point
+        # Imports for this n_point
         self.eval_mod = importlib.import_module(f"eval_sft_{n_point}pt")
         self.action_space_mod = importlib.import_module(f"action_space_{n_point}pt")
         self.train_mod = importlib.import_module("train_sft_transformer")
@@ -65,7 +65,7 @@ class _LoadedBackend:
             max_brackets=L.max_brackets,
         )
 
-        # Compute model dimensions (matches eval_sft_4pt.main lines 1528-1547)
+        # The model dimensions, as in eval_sft_4pt.main
         bracket_feature_dim = 2 + 2 * n_point
         term_feature_dim = 2 + L.max_brackets_per_term * bracket_feature_dim + 1
         n_term_slots = 1 + L.max_terms_action
@@ -76,7 +76,7 @@ class _LoadedBackend:
             n_actions=self.action_space.n_actions,
             max_brackets=L.max_brackets,
             actions_per_bracket=n_term_slots * self.action_space.identities_per_bracket,
-            embed_dim=64,        # Stage 1 default
+            embed_dim=64,        # the SFT default
             num_heads=4,
             num_layers=3,
             ff_dim=128,
@@ -85,8 +85,7 @@ class _LoadedBackend:
             global_feature_dim=2,
         ).to(device)
 
-        # weights_only=True: shipped Stage 1 checkpoints only hold tensor
-        # state_dict + ints — safe to deserialize without arbitrary pickle.
+        # The published checkpoints hold only a tensor state_dict and ints.
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
         self.model.load_state_dict(ckpt["model_state_dict"])
         self.model.eval()
@@ -103,7 +102,7 @@ class _LoadedBackend:
             pass
 
 
-# Process-wide cache: one backend per (n_point, checkpoint_str)
+# The process-wide cache, one backend per (n_point, checkpoint_str)
 _BACKENDS: Dict[str, _LoadedBackend] = {}
 
 
@@ -114,13 +113,13 @@ def _get_backend(n_point: int, checkpoint_path: Path, device: str) -> _LoadedBac
     return _BACKENDS[key]
 
 
-# One lock per n-point. The persistent sympy worker in eval_sft_{n}pt is a MODULE
-# global shared by every job of that n-point — greedy AND beam — and its
-# `apply_action_with_timeout` assumes a single caller when draining the response
-# queue and restarting the worker after a timeout. Holding this lock for an entire
-# `evaluate_sample` rollout serializes worker access across jobs. A new request
-# waits until a cancelled rollout releases the lock. The lock is keyed by `n_point`,
-# matching the worker's scope, and is shared by checkpoints with the same `n_point`.
+# One lock per n-point. The persistent sympy worker in eval_sft_{n}pt is a module global
+# shared by every job of that n-point, greedy and beam alike, and its
+# `apply_action_with_timeout` assumes a single caller when draining the response queue and
+# restarting the worker after a timeout. Holding this lock for an entire `evaluate_sample`
+# rollout serialises worker access across jobs. A new request waits until a cancelled rollout
+# releases the lock. The lock is keyed by `n_point`, matching the worker's scope, and is
+# shared by checkpoints with the same `n_point`.
 _WORKER_LOCKS: Dict[int, threading.Lock] = {}
 _WORKER_LOCKS_GUARD = threading.Lock()
 
@@ -138,7 +137,7 @@ class SFTGreedy:
     name = "sft_greedy"
 
     def __init__(self, checkpoint_path: Optional[Path] = None, device: Optional[str] = None):
-        self.checkpoint_path = checkpoint_path  # may be None → use default per n_point
+        self.checkpoint_path = checkpoint_path  # None means the default for the n_point
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
     def run(
@@ -152,21 +151,20 @@ class SFTGreedy:
         capture_derivation: bool = False,
         simplify_mode: str = "none",
         sft_patience: int = 0,
-        cancel_event=None,          # threading.Event; stop at next step boundary
+        cancel_event=None,          # a threading.Event checked at the next step boundary
     ) -> AlgorithmResult:
         ckpt = self.checkpoint_path or _default_checkpoint_path(n_point)
         backend = _get_backend(n_point, ckpt, self.device)
         L = SFT_LIMITS[n_point]
 
-        # evaluate_sample early-terminates when `count_brackets(current) <=
-        # count_brackets(target)` (see eval_sft_4pt.py line ~442). If no target
-        # is supplied, we set a 0-bracket sentinel (sp.Integer(1)) so the
-        # rollout runs to max_steps or anti-cycle dead-end. `min_brackets`
-        # still tracks the best state along the way.
+        # evaluate_sample stops early when `count_brackets(current) <= count_brackets(target)`.
+        # Without a target, the 0-bracket sentinel sp.Integer(1) makes the rollout run to
+        # max_steps or to an anti-cycle dead end. `min_brackets` still tracks the best state
+        # along the way.
         eff_target = target if target is not None else sp.Integer(1)
 
         t0 = time.time()
-        # Serialize the shared sympy worker for the whole rollout (see _worker_lock).
+        # Serialise the shared sympy worker for the whole rollout through _worker_lock.
         with _worker_lock(n_point):
             rollout = backend.eval_mod.evaluate_sample(
                 backend.model,
@@ -201,13 +199,13 @@ class SFTGreedy:
         ab_cls, sb_cls = _sft_bracket_classes()
         final_str, bk_final, _ = maybe_simplify(raw_final_str, simplify_mode, ab_cls, sb_cls)
         min_str, bk_min, _ = maybe_simplify(raw_min_str, simplify_mode, ab_cls, sb_cls)
-        # Defensive: if simplification failed (-1) fall back to rollout's count.
+        # If simplification failed with -1, the rollout's count is used.
         if bk_final < 0:
             bk_final = bk_final_raw
         if bk_min < 0:
             bk_min = bk_min_raw
 
-        solved = bk_min < bk_start  # made strict progress at min
+        solved = bk_min < bk_start  # strict progress at the minimum
 
         derivation = rollout.get("trajectory") if capture_derivation else None
         if derivation:

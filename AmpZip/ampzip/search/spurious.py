@@ -6,22 +6,20 @@ supplied cancellation candidates. Removing a denominator factor S requires the
 combined numerator to be divisible by S on shell, and hence to vanish on S = 0.
 The checks below test this vanishing condition and a proposed quotient.
 
-Two primitives:
-
-  * `is_spurious(num, S, n)` samples on-shell points over F_p with S = 0 and checks
-    whether the supplied numerator vanishes there. No target expression is needed.
-  * `certify_cancellation(src, dst, n)` checks that the monomial denominators agree,
-    that dst adds no opaque factors and drops at least one, and that each dropped
-    factor passes the spurious-pole check. It also tests
-    `num(src) == product(dropped_factors) * num(dst)` and `src == dst` on shell.
+`is_spurious(num, S, n)` samples on-shell points over F_p with S = 0 and checks whether
+the supplied numerator vanishes there. No target expression is needed.
+`certify_cancellation(src, dst, n)` checks that the monomial denominators agree, that dst
+adds no opaque factors and drops at least one, and that each dropped factor passes the
+spurious-pole check. It also tests `num(src) == product(dropped_factors) * num(dst)` and
+`src == dst` on shell.
 
 Arithmetic at each sampled point is exact over F_p. Agreement provides
 probabilistic evidence for the tested relations, as in `ampzip.verify.equal`.
 
-This module does not construct the quotient `num(src)/S` in bracket notation from
-`src` alone. Recovering bracket notation from a quotient computed in a parametrized
-chart is a separate reconstruction problem (see `finiteflow.py`). Given a
-candidate `dst`, this module checks the relation by finite-field evaluations.
+This module does not construct the quotient `num(src)/S` in bracket notation from `src`
+alone. Recovering bracket notation from a quotient computed in a parametrised chart is the
+separate reconstruction problem of `finiteflow.py`. Given a candidate `dst`, this module
+checks the relation by finite-field evaluations.
 """
 from __future__ import annotations
 
@@ -40,7 +38,7 @@ _T = sp.Symbol("_t")
 
 
 # --------------------------------------------------------------------------- #
-# rational-function decomposition (engine handle -> bracket strings)
+# rational-function decomposition, from an engine handle to bracket strings
 # --------------------------------------------------------------------------- #
 
 def _bracket(sq: bool, i: int, j: int, e: int = 1) -> str:
@@ -49,12 +47,12 @@ def _bracket(sq: bool, i: int, j: int, e: int = 1) -> str:
 
 
 def _monomial(brs) -> str:
-    """`[(square, i, j, exp), ...]` -> a bracket monomial string ('1' when empty)."""
+    """`[(square, i, j, exp), ...]` as a bracket monomial string, '1' when empty."""
     return "*".join(_bracket(*b) for b in brs) or "1"
 
 
 def _polynomial(terms) -> str:
-    """`[(coeff, [(square,i,j,exp), ...]), ...]` -> a bracket polynomial string."""
+    """`[(coeff, [(square,i,j,exp), ...]), ...]` as a bracket polynomial string."""
     if not terms:
         return "0"
     return " + ".join(f"({c})*{_monomial(brs)}" for c, brs in terms)
@@ -75,11 +73,10 @@ class RatFn(NamedTuple):
 
 
 def ratfn_parts(expr, n: int) -> RatFn:
-    """Decompose `expr` (raw user notation, atomized string, or `Expr`) into a `RatFn`.
+    """Decompose `expr`, raw user notation, an atomized string or an `Expr`, into a `RatFn`.
 
-    The engine has already put a sum of fractions over a common denominator, so `num` is
-    the COMBINED numerator -- exactly the object whose divisibility by a spurious pole is
-    at stake.
+    The engine has already put a sum of fractions over a common denominator, so `num` is the
+    combined numerator, the object whose divisibility by a spurious pole is at stake.
     """
     if isinstance(expr, str):
         from ampzip.simplifier.atomize import atomize
@@ -102,10 +99,10 @@ def ratfn_parts(expr, n: int) -> RatFn:
 
 def _gauge_point(lam, tfree, p: int):
     """Build an on-shell point from free angle spinors `lam` and the first n-2 square
-    spinors `tfree`; legs n-1 and n are solved from momentum conservation.
+    spinors `tfree`. Legs n-1 and n are solved from momentum conservation.
 
-    This is `param6.phi` generalised to any n >= 4 and to arbitrary (ungauged) `lam`.
-    Returns the verifier's point dict, or None if <n-1,n> == 0 mod p.
+    This is `param6.phi` generalised to any n >= 4 and to arbitrary ungauged `lam`. Returns
+    the verifier's point dict, or None if <n-1,n> == 0 mod p.
     """
     n = len(lam)
     lamt = [list(t) for t in tfree] + [None, None]
@@ -133,13 +130,13 @@ def _eval_at(sym, atoms, point, p: int) -> int:
 
 
 def _roots_modp(coeffs, p: int):
-    """Roots in F_p of the polynomial with monomial coefficients `coeffs` (c[0] + c[1] t + ...).
+    """Roots in F_p of the polynomial c[0] + c[1] t + ... with coefficients `coeffs`.
 
-    Degrees 1 and 2 are solved in closed form (every pole atom this repo produces -- a
-    Mandelstam `s_I`, a Dirac chain `<a|P|b]` -- is degree 2 in `t` along the lines drawn
-    by `_surface_points`, since the angle spinors are frozen and each square spinor is
-    linear in `t`). Higher degrees fall back to sympy over GF(p); if that is unavailable
-    the caller just draws another line.
+    Degrees 1 and 2 are solved in closed form. Every pole atom this package produces, a
+    Mandelstam `s_I` or a Dirac chain `<a|P|b]`, is degree 2 in `t` along the lines drawn by
+    `_surface_points`, since the angle spinors are frozen and each square spinor is linear
+    in `t`. Higher degrees go to sympy over GF(p), and if that is unavailable the caller
+    draws another line.
     """
     while coeffs and coeffs[-1] % p == 0:
         coeffs = coeffs[:-1]
@@ -166,11 +163,11 @@ def _roots_modp(coeffs, p: int):
 def _surface_points(S_sym, n: int, p: int, rng, want: int, max_lines: int = 256):
     """Yield up to `want` on-shell F_p points that lie on the surface `S_sym == 0`.
 
-    Construction: freeze the angle spinors (so `<n-1,n>` and every `ab` is constant) and
-    move the free square spinors along a random affine line. Momentum conservation stays
-    solved for every `t` -- the solved spinors are linear in the free ones -- so the whole
-    line is on-shell, every `sb` is quadratic in `t`, and `S(t)` is a low-degree
-    polynomial whose roots can be taken exactly.
+    The angle spinors are frozen, so `<n-1,n>` and every `ab` is constant, and the free
+    square spinors move along a random affine line. Momentum conservation stays solved for
+    every `t`, since the solved spinors are linear in the free ones, so the whole line is on
+    shell, every `sb` is quadratic in `t`, and `S(t)` is a low-degree polynomial whose roots
+    can be taken exactly.
     """
     atoms = S_sym.atoms(sp.Function)
     out = []
@@ -200,7 +197,7 @@ def _surface_points(S_sym, n: int, p: int, rng, want: int, max_lines: int = 256)
             pt = at(r)
             if pt is None:
                 continue
-            if _eval_at(S_sym, atoms, pt, p) != 0:      # guard against a bad interpolation
+            if _eval_at(S_sym, atoms, pt, p) != 0:      # a bad interpolation
                 continue
             out.append(pt)
             if len(out) >= want:
@@ -213,18 +210,18 @@ def _surface_points(S_sym, n: int, p: int, rng, want: int, max_lines: int = 256)
 # --------------------------------------------------------------------------- #
 
 def is_spurious(num, S, n: int, k: int = 8, primes=DEFAULT_PRIMES, rng=None):
-    """Is the pole `S` spurious for the numerator `num`? (blind -- no target needed)
+    """Whether the pole `S` is spurious for the numerator `num`, with no target needed.
 
-    Sample on-shell points on the surface S = 0 and check that `num` vanishes
-    there using exact arithmetic over F_p. Agreement is probabilistic evidence
-    for the vanishing condition.
+    On-shell points on the surface S = 0 are sampled and `num` is checked to vanish there
+    in exact arithmetic over F_p. Agreement is probabilistic evidence for the vanishing
+    condition.
 
-    Returns `(verdict, stats)`. `verdict` is True/False, or None when no verdict could be
-    reached -- `stats['reason']` says which: `'degenerate_pole'` when S itself is
-    identically 0 on the on-shell variety (e.g. `s(1,2,3)` at n=4, where momentum
-    conservation and masslessness force it to vanish, so "the surface S=0" is the whole
-    variety and the expression is ill-defined), or `'no_points'` when the surface exists
-    but no usable point could be constructed.
+    Returns `(verdict, stats)`. `verdict` is True or False, or None when no verdict could be
+    reached, in which case `stats['reason']` says why. It is `'degenerate_pole'` when S
+    itself is identically 0 on the on-shell variety, as `s(1,2,3)` is at n=4, where momentum
+    conservation and masslessness force it to vanish, so the surface S=0 is the whole variety
+    and the expression is ill-defined, and `'no_points'` when the surface exists but no
+    usable point could be constructed.
     """
     if rng is None:
         rng = random.Random(20260818)
@@ -248,16 +245,16 @@ def is_spurious(num, S, n: int, k: int = 8, primes=DEFAULT_PRIMES, rng=None):
 
 
 # --------------------------------------------------------------------------- #
-# the B -> A certificate
+# the cancellation certificate
 # --------------------------------------------------------------------------- #
 
 class Certificate(NamedTuple):
     ok: bool
     src: RatFn
     dst: RatFn
-    dropped: tuple         # opaque factors present in src but not in dst
+    dropped: tuple         # the opaque factors present in src and absent from dst
     same_den_mono: bool
-    spurious: dict         # S -> (verdict, stats)
+    spurious: dict         # (verdict, stats) per S
     quotient_ok: Optional[bool]
     values_equal: Optional[bool]
     steps: tuple
@@ -266,14 +263,13 @@ class Certificate(NamedTuple):
 def certify_cancellation(src, dst, n: int, k: int = 8, rng=None) -> Certificate:
     """Certify the representation change `src -> dst` as a spurious-pole cancellation.
 
-    Checks, in order:
-      1. both sides share the same monomial denominator (else the change is not a pure
-         pole cancellation and the quotient identity below would be off by that ratio);
-      2. every opaque factor of `dst` is also one of `src`, and the extra ones are the
-         poles being dropped;
-      3. each dropped pole is SPURIOUS -- `num(src)` vanishes on its zero surface;
-      4. the exact quotient identity `num(src) == (prod dropped) * num(dst)` on-shell;
-      5. (redundant, kept as an independent end-to-end gate) `src == dst` as functions.
+    The checks run in order. Both sides must share the same monomial denominator, since
+    otherwise the change is not a pure pole cancellation and the quotient identity would be
+    off by that ratio. Every opaque factor of `dst` must also be one of `src`, the extra ones
+    being the poles dropped. Each dropped pole must be spurious, so `num(src)` vanishes on
+    its zero surface. The exact quotient identity `num(src) == (prod dropped) * num(dst)`
+    must hold on shell. And `src == dst` must hold as functions, an independent end-to-end
+    check kept although the others imply it.
     """
     a, b = ratfn_parts(src, n), ratfn_parts(dst, n)
     same_mono = sp.simplify(sp.sympify(a.den_mono) - sp.sympify(b.den_mono)) == 0

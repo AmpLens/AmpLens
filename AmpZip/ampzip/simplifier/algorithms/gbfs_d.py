@@ -1,26 +1,25 @@
-"""GBFS version D ("version 4") — model-free best-first search under the physical-atom objective.
+"""The gbfs_d variant, best-first search under the physical-atom objective.
 
-The (d) objective: minimize the **sum of brackets, Dirac chains, and S
-symbols** in the numerator. Same engine, same value-preserving moves, same soundness gate as
-`model_free_gbfs`; the ONLY difference is the simplicity objective that orders the frontier and
-tracks the returned best node:
+gbfs_d minimises the sum of brackets, Dirac chains and S symbols in the numerator. It has
+the same engine, the same value-preserving moves and the same finite-field test as
+`model_free_gbfs`, and differs only in the objective that orders the frontier and tracks
+the returned best node.
 
-  1. **Physical-atom count, not bracket count.** Each S symbol (`ab(i,j)*sb(i,j)`) and each
-     single-leg Dirac chain (`ab(a,m)*sb(m,b)`) folds two brackets into ONE atom; everything
-     else is one atom per bracket (see `ampzip.search.objective_atoms`). The score is the
-     disjoint partition `#S + #chain + #bare`, so no bracket is double-counted.
-  2. **Atoms are summed per-term** (no cross-term common-factor extraction) — unlike the bracket
-     objective's `factored_bracket_count`, which pulls a bracket shared by every term out and
-     counts it once. So on a common-factor sum the two objectives can rank the SAME node
-     oppositely.
+The objective is the physical-atom count. Each S symbol `ab(i,j)*sb(i,j)` and each
+single-leg Dirac chain `ab(a,m)*sb(m,b)` folds two brackets into one atom, and everything
+else is one atom per bracket, as `ampzip.search.objective_atoms` defines it. The score is
+the disjoint partition `#S + #chain + #bare`, so no bracket is double-counted. Atoms are
+summed per term with no cross-term common-factor extraction, whereas the bracket objective's
+`factored_bracket_count` pulls a bracket shared by every term out and counts it once. So on
+a common-factor sum the two objectives can rank the same node oppositely.
 
-version D keeps the den-aware frontier bias OFF: the atom objective already drives both ordering
-and best-tracking, so the answer favours forms whose brackets pair into physical invariants even
-when that isn't the raw-bracket minimum.
+gbfs_d keeps the denominator-aware frontier bias off. The atom objective already drives both
+the ordering and the best-tracking, so the answer favours forms whose brackets pair into
+physical invariants even when that is not the bracket-count minimum.
 
-Not to be confused with (e), which is a *separate* per-term simplification **driver** — split the
-numerator into its additive terms, simplify each independently, then recombine — and not an
-objective. See `docs/GBFS_VARIANTS.md`.
+gbfs_e differs in kind. It is a per-term driver that splits the numerator into its additive
+terms, simplifies each independently and recombines, and it is no objective.
+`docs/GBFS_VARIANTS.md` has the comparison.
 """
 from __future__ import annotations
 
