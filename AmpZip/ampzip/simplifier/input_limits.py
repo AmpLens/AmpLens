@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, fields
 from typing import Dict, List, Optional, Tuple
 
+from ._source import SUM_NAME, parse_source
+
 # Python will not convert a longer integer to text.
 PYTHON_INT_STR_DIGITS = 4300
 
@@ -149,7 +151,7 @@ def measure(raw: str) -> Dict[str, object]:
         "exponent_at": "", "power_nesting_at": "", "number_digits_at": "",
     }
     try:
-        tree = ast.parse(raw.replace("\r", " ").replace("\n", " "), mode="eval")
+        tree = parse_source(raw)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return out
     out.update(_tree_measures(tree, raw.replace("\r", " ").replace("\n", " ")))
@@ -211,6 +213,12 @@ def _tree_measures(tree: ast.Expression, raw: str) -> Dict[str, object]:
                 res = (min(ln + rn, cap), min(ld + rd, cap), max(le, re_), max(lk, rk))
         elif isinstance(node, ast.UnaryOp):
             res = get(node.operand)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == SUM_NAME:
+            # The split long sum, folded exactly as the left-nested chain it stands for.
+            res = get(node.args[0])
+            for k in node.args[1:]:
+                (ln, ld, le, lk), (rn, rd, re_, rk) = res, get(k)
+                res = (_log10_add(ln + rd, rn + ld), min(ld + rd, cap), max(le, re_), max(lk, rk))
         elif isinstance(node, ast.Call):
             args = [get(k) for k in kids]
             res = (0.0, 0.0, max((a[2] for a in args), default=0.0), max((a[3] for a in args), default=0))

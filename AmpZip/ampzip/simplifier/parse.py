@@ -30,6 +30,8 @@ from typing import Dict, Iterable, Optional, Set
 
 import sympy as sp
 
+from ._source import FLATTEN_MIN, SUM_NAME, parse_source
+
 
 class ParseError(ValueError):
     """The text is not an admissible expression. `kind` names the failed rule."""
@@ -53,14 +55,12 @@ _SYMPY_NAMES: Dict[str, object] = {
 
 _INT_PREFIX = "_int_"
 
-# A long sum parses to a left-nested BinOp chain one level deep per term, and both the
-# admission visitor and `eval` would recurse once per term, hitting Python's recursion limit
-# near 600 terms. Spines of at least _FLATTEN_MIN additive terms are therefore rewritten
-# iteratively into one call `_amp_sum(t1, -t2, t3, ...)` that `eval_tree` binds to
-# `sympy.Add`, so the parser puts no limit on the number of summands. Short sums are left as
-# written.
-_SUM_NAME = "_amp_sum"
-_FLATTEN_MIN = 32
+# `parse_source` splits a long top-level sum before parsing and `_flatten_sums` rewrites the
+# long sums below the top level, both into one call `_amp_sum(t1, -t2, t3, ...)` that
+# `eval_tree` binds to `sympy.Add`. Both the admission visitor and `eval` would otherwise
+# recurse once per term of a left-nested sum.
+_SUM_NAME = SUM_NAME
+_FLATTEN_MIN = FLATTEN_MIN
 
 
 def _flatten_spine(node):
@@ -180,11 +180,8 @@ def parse_tree(raw: str, *, calls: Iterable[str], names: Iterable[str] = (),
     """
     if not raw or not raw.strip():
         raise ParseError("empty expression", "empty")
-    # A newline is a token separator for Python's tokenizer, so a sum wrapped across lines at
-    # top level is a SyntaxError. A space replaces it, since "" would fuse tokens.
-    raw = raw.replace("\r", " ").replace("\n", " ")
     try:
-        tree = ast.parse(raw, mode="eval")
+        tree = parse_source(raw)
     except (SyntaxError, ValueError, RecursionError, MemoryError) as e:
         raise ParseError(f"could not parse expression: {e}", "syntax") from e
     tree = _flatten_sums(tree)

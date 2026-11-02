@@ -15,6 +15,7 @@ import sympy as sp  # noqa: E402
 
 import ampzip.simplifier._paths  # noqa: E402,F401
 from ampzip.simplifier.parse import parse_expr, ParseError  # noqa: E402
+from ampzip.simplifier.input_limits import measure  # noqa: E402
 from ampzip.simplifier.validate import validate, _get_bracket_classes  # noqa: E402
 from ampzip.simplifier.atomize import atomize  # noqa: E402
 
@@ -109,6 +110,37 @@ def test_strict_policy_for_atomizer():
         except Exception:
             continue
         raise AssertionError(f"atomize admitted {s!r}")
+
+
+def test_long_sums_parse_on_every_platform():
+    # CPython refuses to build a syntax tree deeper than its C recursion limit, 4000 levels on
+    # Windows, so a sum this long parses only when it is split before `ast.parse`.
+    ab_, sb_ = ab, sb
+    terms = [f"ab(1,2)*sb(3,4)**{k % 5 + 1}" for k in range(20_000)]
+    signs = [1] + [-1 if k % 3 else 1 for k in range(1, len(terms))]
+    text = terms[0] + "".join((" - " if s < 0 else " + ") + t for s, t in zip(signs[1:], terms[1:]))
+    text += " + ab(1,2)**-2*(sb(1,3) + sb(2,4))"
+    got = parse_expr(text, LOCAL)
+    coeff = {k: sum(s for s, t in zip(signs, terms) if t.endswith(f"**{k}")) for k in range(1, 6)}
+    expected = sum(c * ab_(1, 2) * sb_(3, 4) ** k for k, c in coeff.items()) \
+        + ab_(1, 2) ** -2 * (sb_(1, 3) + sb_(2, 4))
+    assert got == expected
+    m = measure(text)
+    assert m["exponent"] == 5 and m["power_nesting"] == 0 and m["number_digits"] is not None, m
+    assert "**5" in m["exponent_at"], m["exponent_at"]
+
+
+def test_split_sums_match_whole_parse():
+    # At least 32 summands take the split path; sympify sees the whole text.
+    pieces = ["ab(1,2) - -sb(3,4)", "ab(1,2)**-2 - sb(1,2)", "(ab(1,2) - ab(3,4)) - ab(1,3)",
+              "- ab(1,4)", "2*ab(1,2)*-sb(3,4)", "ab(1,2)/3 - 1"]
+    text = " + ".join(pieces * 6)
+    assert text.count("+") + text.count("-") > 32
+    got = parse_expr(text, LOCAL, lenient=True)
+    ref = sp.sympify(text, locals=LOCAL)
+    assert got == ref, (str(got), str(ref))
+    long_chain = " + ".join(["chain('as',1,[2,3],4) - ab(1,2)"] * 20)
+    assert "chain" not in atomize(long_chain)
 
 
 def main() -> int:
