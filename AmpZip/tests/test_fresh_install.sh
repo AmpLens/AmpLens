@@ -43,6 +43,37 @@ OUT="$("$TMP/venv/bin/ampzip" --expr "ab(1,2)**4/(ab(1,2)*ab(2,3)*ab(3,4)*ab(4,1
         --algorithms model_free_gbfs --log-dir "$TMP/logs")"
 echo "$OUT" | grep -q "model_free_gbfs" || { echo "no gbfs result"; exit 1; }
 
+echo "[fresh] CLI flags: --json, --n-point, --expr-file, --target, budgets, derivation:"
+AMPZIP="$TMP/venv/bin/ampzip"
+printf '%s\n' "ab(1,3)*sb(2,4)*(s(1,2)+s(1,4))/s(1,2)**2" > "$TMP/amplitude.txt"
+"$AMPZIP" --expr-file "$TMP/amplitude.txt" --json --n-point 4 --log-dir "$TMP/logs" \
+    --target="-ab(1,3)*sb(2,4)*ab(1,4)*sb(1,4)/(ab(1,2)*sb(1,2))**2" \
+    --gbfs-max-apps 200 --gbfs-max-seconds 10 --capture-derivation --max-input-chars 400 \
+    > "$TMP/cli.json"
+"$PY" - "$TMP/cli.json" <<'PYEOF'
+import json, sys
+rec = json.load(open(sys.argv[1]))
+assert rec["validation"]["ok"] and rec["validation"]["inferred_n_point"] == 4, rec["validation"]
+(r,) = rec["results"]
+assert r["algorithm"] == "model_free_gbfs" and r["derivation"] is not None, r
+assert 0 <= r["bracket_count_final"] <= r["bracket_count_start"], r
+assert r["extra"]["apps"] <= 200, r["extra"]["apps"]
+print("  json record OK, solved:", r["solved"])
+PYEOF
+set +e
+"$AMPZIP" --expr "ab(1,2)**2+ab(3,4)**2" --max-input-chars 10 --log-dir "$TMP/logs" >"$TMP/limit.out" 2>&1
+RC=$?
+set -e
+[[ "$RC" == 2 ]] || { echo "an input over --max-input-chars exited $RC, expected 2"; exit 1; }
+grep -q "max_input_chars" "$TMP/limit.out" || { echo "the limit message does not name the bound"; cat "$TMP/limit.out"; exit 1; }
+
+echo "[fresh] README command-line examples run as written:"
+"$AMPZIP" --expr "ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))" --log-dir "$TMP/logs" >/dev/null
+"$AMPZIP" --expr "ab(1,3)*sb(2,4)*(s(1,2)+s(1,4))/s(1,2)**2" --log-dir "$TMP/logs" >/dev/null
+"$AMPZIP" --expr "(chain('as',6,[1,2],3)**3)/(ab(6,1)*ab(1,2)*sb(3,4)*sb(4,5)*s(6,1,2))" \
+    --algorithms model_free_gbfs,gbfs_f --gbfs-max-apps 2000 --gbfs-max-seconds 30 --log-dir "$TMP/logs" >/dev/null
+(cd "$TMP" && "$AMPZIP" --expr-file amplitude.txt --json --log-dir "$TMP/logs" >/dev/null)
+
 echo "[fresh] learned backends report themselves unavailable:"
 "$PY" - <<'EOF'
 from ampzip.simplifier.runner import available_algorithms, list_algorithms
@@ -67,6 +98,35 @@ curl -fs http://127.0.0.1:18765/healthz; echo
 JOB="$(curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: application/json' \
       -d '{"expr":"ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))","algorithms":["model_free_gbfs"]}')"
 echo "  submitted: $JOB"
+
+echo "[fresh] the page, the vendored MathJax and /api/limits are served:"
+curl -fs -o "$TMP/index.html" http://127.0.0.1:18765/
+grep -qi "<html" "$TMP/index.html" || { echo "no page at /"; exit 1; }
+curl -fs -o /dev/null http://127.0.0.1:18765/static/mathjax/tex-svg.js
+curl -fs http://127.0.0.1:18765/api/limits \
+    | "$PY" -c "import json,sys; d=json.load(sys.stdin); assert 'max_input_chars' in d['input_limits'], d; print('  limits OK')"
+
+echo "[fresh] the job result is fetched and cancel answers:"
+JOB_ID="$(echo "$JOB" | "$PY" -c "import json,sys; print(json.load(sys.stdin)['job_id'])")"
+for _ in $(seq 1 60); do
+    STATUS="$(curl -fs "http://127.0.0.1:18765/api/jobs/$JOB_ID" | "$PY" -c "import json,sys; print(json.load(sys.stdin)['status'])")"
+    [[ "$STATUS" == done || "$STATUS" == error || "$STATUS" == timeout ]] && break
+    sleep 1
+done
+curl -fs "http://127.0.0.1:18765/api/jobs/$JOB_ID" | "$PY" -c "
+import json, sys
+job = json.load(sys.stdin)
+assert job['status'] == 'done', job['status']
+(r,) = job['results']
+assert 0 <= r['bracket_count_final'] <= r['bracket_count_start'], r
+print('  job done:', r['bracket_count_start'], '->', r['bracket_count_final'])"
+SLOW="$(curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: application/json' \
+      -d "{\"expr\":\"(chain('as',6,[1,2],3)**3)/(ab(6,1)*ab(1,2)*sb(3,4)*sb(4,5)*s(6,1,2))\",\"algorithms\":[\"model_free_gbfs\"],\"gbfs_max_seconds\":60}" \
+      | "$PY" -c "import json,sys; print(json.load(sys.stdin)['job_id'])")"
+curl -fs -X POST "http://127.0.0.1:18765/api/jobs/$SLOW/cancel" \
+    | "$PY" -c "import json,sys; d=json.load(sys.stdin); assert d['status'] in ('cancelled','done','running','queued'), d; print('  cancel:', d['status'])"
+MISSING="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18765/api/jobs/nope/cancel)"
+[[ "$MISSING" == 404 ]] || { echo "cancel of a missing job answered $MISSING, expected 404"; exit 1; }
 
 echo "[fresh] independent powers pass the exponent-tower check:"
 curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: application/json' \
