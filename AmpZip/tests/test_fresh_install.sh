@@ -68,6 +68,13 @@ JOB="$(curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: applic
       -d '{"expr":"ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))","algorithms":["model_free_gbfs"]}')"
 echo "  submitted: $JOB"
 
+echo "[fresh] independent powers pass the exponent-tower check:"
+curl -fs -X POST http://127.0.0.1:18765/api/jobs -H 'content-type: application/json' \
+    -d '{"expr":"ab(1,2)**2+ab(3,4)**2","algorithms":["model_free_gbfs"],"n_point":4}' >/dev/null
+TOWER="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18765/api/jobs \
+    -H 'content-type: application/json' -d '{"expr":"9**9**9","algorithms":["model_free_gbfs"]}')"
+[[ "$TOWER" == 400 ]] || { echo "9**9**9 answered $TOWER, expected 400"; exit 1; }
+
 echo "[fresh] Compare numerically works without the research packages:"
 numcheck() {
     curl -fs -X POST http://127.0.0.1:18765/api/numerical_check -H 'content-type: application/json' \

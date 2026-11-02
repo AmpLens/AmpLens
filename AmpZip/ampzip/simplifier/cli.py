@@ -35,6 +35,8 @@ from .limits import (DEFAULT_GBFS_ORDERING, DEFAULT_GBFS_TARGET_CRITERION, DEFAU
                      DEFAULT_POST_TIMEOUT_S, DEFAULT_ALGO_GRACE_S, DEFAULT_MAX_PARALLEL_ALGOS,
                      GBFS_ORDERINGS, GBFS_TARGET_CRITERIA)
 from .atomize import atomize, AtomizeError, has_opaque_den
+from .input_limits import (DEFAULT_INPUT_LIMITS, LIMIT_CONTROLS, LIMIT_HELP, InputLimitError,
+                           check_input, limits_from_mapping)
 from .parse import parse_expr
 from .runner import run_all, list_algorithms, is_gbfs, is_known
 from .log import utc_now_iso, new_invocation_id, append_invocation, resolve_log_path
@@ -65,7 +67,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--algorithms", type=str, default="model_free_gbfs",
                    help=f"Comma-separated backends to run. Available: {', '.join(list_algorithms())}.")
 
-    # --- learned backends
+    # --- the neural baselines
     p.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS,
                    help="Maximum number of steps per SFT rollout.")
     p.add_argument("--per-step-timeout", type=float, default=DEFAULT_PER_STEP_TIMEOUT,
@@ -93,7 +95,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--cds-length-penalty", type=float, default=DEFAULT_CDS_LENGTH_PENALTY,
                    help="CDS: beam length penalty. Higher values favour longer outputs.")
 
-    # --- search family (model_free_gbfs, gbfs_c, gbfs_d, gbfs_e, gbfs_f)
+    # --- the search family, model_free_gbfs, gbfs_c, gbfs_d, gbfs_e and gbfs_f
     p.add_argument("--gbfs-max-apps", type=int, default=DEFAULT_GBFS_MAX_APPS,
                    help="Move budget for each GBFS variant.")
     p.add_argument("--gbfs-max-seconds", type=float, default=DEFAULT_GBFS_MAX_SECONDS,
@@ -148,6 +150,13 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="Directory for cli.jsonl. Defaults to AMPZIP_LOG_DIR or the user log directory.")
     p.add_argument("--json", action="store_true",
                    help="Print the full result record as JSON on stdout, and all other output on stderr.")
+    lim = p.add_argument_group(
+        "input limits",
+        "Checked on --expr and --target before parsing. The web service uses the same limits "
+        "through the WEBSVC_MAX_* variable named after each flag.")
+    for name, (flag, _env) in LIMIT_CONTROLS.items():
+        lim.add_argument(flag, type=int, default=None, metavar="N",
+                         help=f"{LIMIT_HELP[name]} Default {getattr(DEFAULT_INPUT_LIMITS, name)}.")
     return p
 
 
@@ -237,8 +246,8 @@ def main(argv: List[str] | None = None) -> int:
     args = _build_argparser().parse_args(argv)
     if not args.json:
         return _simplify(args, t_main)[0]
-    # With --json, stdout carries only the JSON record so that it can be piped to a parser; the
-    # validation, routing and results text goes to stderr.
+    # With --json, stdout carries only the JSON record so that it can be piped to a parser.
+    # The validation, routing and results text goes to stderr.
     with contextlib.redirect_stdout(sys.stderr):
         code, record = _simplify(args, t_main)
     if code == 0:
@@ -266,11 +275,26 @@ def _simplify(args, t_main: float):
         cwd=os.getcwd(),
         cli_args=vars(args),
         raw_input=raw_input,
-        validation=None,  # filled below
+        validation=None,  # filled in below
     )
 
-    # 0. Atomize: rewrite s()/chain() notation into pure ab/sb before anything else.
-    #    The original raw_input is kept in `record`; the atomized form feeds the pipeline.
+    # 0a. Input rules and limits, shared with the web service, before any parsing.
+    try:
+        limits = limits_from_mapping({name: getattr(args, name) for name in LIMIT_CONTROLS})
+        for text in (raw_input, args.target):
+            if text is not None:
+                check_input(text, limits)
+    except (InputLimitError, ValueError) as e:
+        reasons = e.reasons if isinstance(e, InputLimitError) else [str(e)]
+        print("[input] REJECTED:\n" + "\n".join(f"  - {r}" for r in reasons))
+        record.error = "input_rejected: " + "; ".join(reasons)
+        record.total_duration_s = time.time() - t_main
+        log_path = append_invocation(record, log_dir=args.log_dir)
+        print(f"\n[log] {log_path}  ({record.total_duration_s:.2f}s)", file=sys.stderr)
+        return 2, record
+
+    # 0. Atomize, rewriting s() and chain() notation into pure ab/sb before anything else.
+    #    The original raw_input is kept in `record` and the atomized form feeds the pipeline.
     try:
         raw_input = atomize(raw_input, n_hint=n_override)
         atomized_target = atomize(args.target, n_hint=n_override) if args.target else None
@@ -282,9 +306,9 @@ def _simplify(args, t_main: float):
         print(f"\n[log] {log_path}  ({record.total_duration_s:.2f}s)", file=sys.stderr)
         return 2, record
 
-    # 1. Validate. enforce_size_limits=False so the SFT/CDS size budget never rejects the
-    #    whole run — a too-big expression is still fair game for the model-free gbfs family.
-    #    Size violations are reported in v.issues and handled by the size route in step 3.
+    # 1. Validate with enforce_size_limits=False, so the SFT and CDS size budget does not reject
+    #    the whole run, since a too-big expression is still fair game for the gbfs family. Size
+    #    violations are reported in v.issues and handled by the size route in step 3.
     t_v = time.time()
     v = validate(raw_input, override_n_point=n_override, enforce_size_limits=False)
     record.validation_duration_s = time.time() - t_v
@@ -297,10 +321,10 @@ def _simplify(args, t_main: float):
         print(f"\n[log] {log_path}  ({record.total_duration_s:.2f}s)", file=sys.stderr)
         return 2, record
 
-    # 2. Parse expr (and optional target) into sympy
+    # 2. Parse the expression and the optional target into sympy
     ab_cls, sb_cls = _get_bracket_classes()
-    # opaque_den stays an *undefined* Function (no auto-eval to 1/S) so str(expr) keeps the
-    # marker for the engine; the verifier/count layers interpret opaque_den(S) as 1/S.
+    # opaque_den stays an undefined Function with no evaluation to 1/S, so str(expr) keeps the
+    # marker for the engine. The verifier and the count layers read opaque_den(S) as 1/S.
     local_dict = {"ab": ab_cls, "sb": sb_cls, "I": sp.I, "opaque_den": sp.Function("opaque_den")}
     expr = parse_expr(raw_input, local_dict, lenient=True)
     target = (parse_expr(atomized_target, local_dict, lenient=True)
@@ -308,11 +332,10 @@ def _simplify(args, t_main: float):
 
     # 3. Run algorithms
     algo_names = [s.strip() for s in args.algorithms.split(",") if s.strip()]
-    # Opaque polynomial denominators are a gbfs-FAMILY capability — SFT/CDS would mangle the
-    # opaque_den(S) marker, but every GBFS variant supports polynomial denominators.
-    # Auto-route: if the (atomized) input carries an opaque pole, keep all selected gbfs-family
-    # backends and drop only the non-gbfs ones with a note (matches webservice/app.py's router;
-    # the old code collapsed to model_free_gbfs alone, silently dropping gbfs_c/d/e/f).
+    # Sum-denominators are a gbfs-family capability. SFT and CDS would mangle the opaque_den(S)
+    # marker, while every gbfs variant supports polynomial denominators. If the atomized input
+    # carries one, every selected gbfs backend is kept and the others are dropped with a note,
+    # as webservice/app.py's router does.
     if has_opaque_den(raw_input):
         kept = [a for a in algo_names if is_gbfs(a)]
         dropped = [a for a in algo_names if not is_gbfs(a)]
@@ -323,9 +346,9 @@ def _simplify(args, t_main: float):
             print(f"[route] Polynomial denominators require GBFS. Running {kept}. Skipping {dropped}.")
         algo_names = kept
 
-    # Size route: if the expression exceeds the SFT/CDS size budget (checkpoint tensor
-    # widths), those backends can't run, but the model-free gbfs family has no such limit.
-    # Drop SFT/CDS and keep gbfs; if nothing gbfs remains, there is nothing to run.
+    # The size route. If the expression exceeds the SFT and CDS size budget, the checkpoint
+    # tensor widths, those backends cannot run, while the gbfs family has no such limit. SFT and
+    # CDS are dropped and gbfs kept. If no gbfs variant remains, there is nothing to run.
     size_issues = [i for i in v.issues if i.tag in SIZE_LIMIT_TAGS]
     if size_issues:
         gbfs_kept = [a for a in algo_names if is_gbfs(a)]
@@ -346,9 +369,9 @@ def _simplify(args, t_main: float):
                   f"Running {gbfs_kept}. Skipping {dropped}.")
         algo_names = gbfs_kept
 
-    # Engine route: a rational coefficient or the imaginary unit is accepted by the learned
-    # backends but not representable by the search engine. Drop the search family with a
-    # note; fail only when nothing is left to run.
+    # The engine route. A rational coefficient or the imaginary unit is accepted by the neural
+    # baselines but the search engine cannot represent it. The search family is dropped with a
+    # note, and the run fails only when nothing is left to run.
     engine_issues = [i for i in v.issues if i.tag in ENGINE_LIMIT_TAGS]
     if engine_issues:
         kept = [a for a in algo_names if not is_gbfs(a)]
@@ -408,8 +431,8 @@ def _simplify(args, t_main: float):
         post_timeout_s=args.post_process_timeout,
         algo_grace_s=args.algo_grace_seconds,
         max_parallel=args.max_parallel_algos,
-        # ORIGINAL pre-atomize input (record.raw_input; the local `raw_input` was reassigned
-        # to the atomized form above) — gbfs_e splits it by the original additive terms.
+        # The input before atomization, record.raw_input, since the local `raw_input` was
+        # reassigned to the atomized form above. gbfs_e splits it by its additive terms.
         raw_input=record.raw_input,
     )
     record.results = results

@@ -1,26 +1,17 @@
-"""FastAPI app — the public entry point.
+"""The FastAPI app, the public entry point.
 
-Each simplification job passes through these stages in the following order:
-
-    authentication (configured method)
-      → rate limit (per email)
-      → safety.prescreen (char firewall, RCE guard)
-      → atomize input notation
-      → simplifier.validate (atom whitelist + size limits)
-      → clamp params to the server limits
-      → select backends compatible with the input
-      → enqueue job (bounded queue)
-
-These stages precede backend execution. For deployment behind cloudflared, bind
+Each simplification job passes through authentication by the configured method, the
+per-email rate limit, the input rules and limits of safety.prescreen, atomization of the
+input notation, simplifier.validate with its atom whitelist and size limits, clamping of the
+parameters to the server limits, selection of the backends compatible with the input, and
+enqueueing in the bounded queue, in that order, before any backend runs. For deployment behind cloudflared, bind
 to `127.0.0.1` so the tunnel connects locally. The supplied Docker image binds to
 `0.0.0.0` inside the container, while Compose publishes the service on the
-host's loopback address. Never expose the service port publicly when
-authentication is disabled.
+host's loopback address. With authentication disabled the port stays on loopback.
 """
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -37,22 +28,24 @@ from .safety import UnsafeInputError, prescreen
 from .jobs import MANAGER, QueueFull
 
 import threading
-from dataclasses import asdict
 from contextlib import contextmanager
+from dataclasses import asdict
 
 import sympy as sp
 
-# Bounds concurrent in-thread atomize()+validate() (CPU-bound sympy/AST that cannot be
-# hard-interrupted in a thread). Without this, a burst of large inputs could occupy every
-# Starlette worker thread and freeze the whole service — /healthz and job polling included.
-# Shared by /api/jobs and /api/numerical_check (both parse untrusted input). See config.py.
+# Bounds the concurrent in-thread atomize() and validate() calls, CPU-bound sympy and AST
+# work that cannot be interrupted in a thread. Without it a burst of large inputs could
+# occupy every Starlette worker thread and freeze the whole service, /healthz and job polling
+# included. /api/jobs and /api/numerical_check share it, both parsing untrusted input.
+# config.py sets its size.
 _ATOMIZE_SEM = threading.Semaphore(CONFIG.atomize_concurrency)
 
 
 @contextmanager
 def _atomize_slot():
-    """Hold one atomize/validate permit, or 503 if the pool stays saturated past the
-    acquire timeout. Releases on any exit (including the HTTPExceptions raised inside)."""
+    """Hold one atomize and validate permit, or answer 503 if the pool stays saturated past
+    the acquire timeout. The permit is released on any exit, the HTTPExceptions raised inside
+    included."""
     if not _ATOMIZE_SEM.acquire(timeout=CONFIG.atomize_acquire_timeout_s):
         raise HTTPException(
             status_code=503,
@@ -67,21 +60,21 @@ def _atomize_slot():
 app = FastAPI(
     title="AmpZip",
     version=__version__,
-    docs_url=None,        # disable interactive docs on a public endpoint
+    docs_url=None,        # no interactive docs on a public endpoint
     redoc_url=None,
     openapi_url=None,
 )
 
 
-# --- request / response models ----------------------------------------------
+# --- request and response models ---------------------------------------------
 class SubmitRequest(BaseModel):
     expr: str = Field(..., description="expression in ab/sb, s() or chain() notation, e.g. ab(1,2)**3/(ab(2,3)*ab(3,4)*ab(4,1))")
     algorithms: List[str] = Field(default_factory=lambda: ["sft_greedy"])
-    n_point: Optional[Union[int, str]] = None   # 4/5/6, or "auto"/None = infer from the leg labels
+    n_point: Optional[Union[int, str]] = None   # 4, 5 or 6; "auto" or None infers it from the leg labels
     target: Optional[str] = None
     simplify_mode: str = "none"
     capture_derivation: bool = False
-    # tunables (clamped server-side)
+    # tunables, clamped server-side
     max_steps: int = 50
     per_step_timeout: float = 30.0
     sample_timeout: float = 120.0
@@ -92,12 +85,12 @@ class SubmitRequest(BaseModel):
     cds_temperature: float = 1.5
     cds_nucleus_p: float = 0.0
     cds_length_penalty: float = 1.0
-    gbfs_max_apps: int = 60000        # paper headline budget (limits.DEFAULT_GBFS_MAX_APPS)
-    gbfs_max_seconds: float = 300.0   # paper headline cap; clamped to the deployment ceiling
-    gbfs_max_terms: int = 50000   # per-move numerator term cap (limits.DEFAULT_GBFS_MAX_TERMS)
+    gbfs_max_apps: int = 60000        # the paper's headline budget, limits.DEFAULT_GBFS_MAX_APPS
+    gbfs_max_seconds: float = 300.0   # the paper's headline cap, clamped to the deployment limit
+    gbfs_max_terms: int = 50000   # the per-move numerator term cap, limits.DEFAULT_GBFS_MAX_TERMS
     gbfs_den_aware: bool = False
-    gbfs_ordering: str = "factored"           # factored (paper gbfs) | raw (paper gbfsraw)
-    gbfs_target_criterion: str = "brackets"   # none | brackets | brackets-and-terms
+    gbfs_ordering: str = "factored"           # factored for the paper's gbfs, raw for gbfsraw
+    gbfs_target_criterion: str = "brackets"   # none, brackets or brackets-and-terms
     gbfs_threads: int = 1
     gbfs_audit_steps: bool = False
     gbfs_split_max_terms: int = 64
@@ -115,11 +108,10 @@ class SubmitRequest(BaseModel):
 
 
 class NumCheckRequest(BaseModel):
-    """Synchronous numerical-equivalence check (no model, no queue).
+    """Synchronous numerical-equivalence check, with no model and no queue.
 
-    Two expressions are compared at the CDS pre-computed momentum points
-    (MOMENTA_DICT1 + MOMENTA_DICT2 in spinorhelicity). Sub-second per call.
-    Supports n_point in {4, 5, 6} only.
+    Two expressions are compared with exact modular arithmetic at random on-shell
+    points (`ampzip.verify`). Supports n_point in {4, 5, 6} only.
     """
     A: str = Field(..., description="left expression in ab/sb, s() or chain() notation")
     B: str = Field(..., description="right expression in ab/sb, s() or chain() notation")
@@ -133,7 +125,7 @@ def require_email(request: Request) -> str:
         return verify_request_email(request.headers, client_ip=client_ip)
     except AuthError as e:
         audit.audit_reject(email=None, stage="auth", detail=e.detail)
-        # Propagate WWW-Authenticate (Basic mode) so browsers show a login dialog.
+        # Propagate WWW-Authenticate in Basic mode so browsers show a login dialog.
         raise HTTPException(status_code=e.status, detail=e.detail,
                             headers=e.headers or None)
 
@@ -144,9 +136,9 @@ def _clamp(value, lo, hi):
 
 
 def _build_clamped_request(body: SubmitRequest, n_point: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Apply all server ceilings. Returns `(request, clamped)` where `clamped` lists every
-    field the server changed as `{field: [requested, applied]}` (ceilings, fallbacks,
-    dropped algorithms) so nothing is adjusted silently."""
+    """Apply all server limits. Returns `(request, clamped)` where `clamped` lists every
+    field the server changed as `{field: [requested, applied]}`, whether by a limit, a
+    fallback or a dropped algorithm, so nothing is adjusted silently."""
     from ampzip.simplifier.limits import DEFAULT_GBFS_MAX_TERMS
     clamps: Dict[str, Any] = {}
 
@@ -174,7 +166,7 @@ def _build_clamped_request(body: SubmitRequest, n_point: int) -> Tuple[Dict[str,
     den_aware = bool(body.gbfs_den_aware)
     ordering = body.gbfs_ordering if body.gbfs_ordering in ("factored", "raw") else "factored"
     if den_aware and ordering == "raw":
-        clamps["gbfs_den_aware"] = [True, False]      # the two orderings are exclusive; raw wins
+        clamps["gbfs_den_aware"] = [True, False]      # the two orderings are exclusive and raw wins
         den_aware = False
     gbfs_max_terms = body.gbfs_max_terms
     if gbfs_max_terms == 0:
@@ -188,8 +180,8 @@ def _build_clamped_request(body: SubmitRequest, n_point: int) -> Tuple[Dict[str,
         "simplify_mode": (body.simplify_mode
                           if body.simplify_mode in ("none", "cancel", "expand", "simplify")
                           else "none"),
-        # Always capture the per-step derivation — the UI renders it as a panel,
-        # and the cost (storing step expression strings) is negligible.
+        # The page renders the per-step derivation as a panel, and storing the step expression
+        # strings costs little.
         "capture_derivation": True,
         "max_steps": _c("max_steps", body.max_steps, 1, CONFIG.max_max_steps, int),
         "per_step_timeout": _c("per_step_timeout", body.per_step_timeout, 1.0, CONFIG.max_per_step_timeout, float),
@@ -202,10 +194,10 @@ def _build_clamped_request(body: SubmitRequest, n_point: int) -> Tuple[Dict[str,
         "cds_nucleus_p": _c("cds_nucleus_p", body.cds_nucleus_p, 0.0, 1.0, float),
         "cds_length_penalty": _c("cds_length_penalty", body.cds_length_penalty, 0.1, 3.0, float),
         "gbfs_max_apps": _c("gbfs_max_apps", body.gbfs_max_apps, 100, CONFIG.max_gbfs_max_apps, int),
-        # GBFS has separate time and move budgets. `sample_timeout` applies to SFT/CDS.
+        # GBFS has separate time and move budgets. `sample_timeout` applies to SFT and CDS.
         "gbfs_max_seconds": _c("gbfs_max_seconds", body.gbfs_max_seconds, 1.0, CONFIG.max_gbfs_max_seconds, float),
-        # 0 was the old spelling of "engine default"; it becomes the explicit default (reported
-        # below), so no caller can end up with a one-term cap. Positive values clamp to the ceiling.
+        # 0 was the old spelling of the engine default and becomes the explicit default, reported
+        # below. Positive values clamp to the limit.
         "gbfs_max_terms": _c("gbfs_max_terms", gbfs_max_terms, 1, CONFIG.max_gbfs_max_terms, int),
         "gbfs_den_aware": den_aware,
         "gbfs_ordering": ordering,
@@ -224,7 +216,7 @@ _STATIC = Path(__file__).resolve().parent / "static"
 
 @app.get("/healthz")
 def healthz() -> Dict[str, Any]:
-    """Unauthenticated liveness probe (cloudflared / monitoring)."""
+    """Unauthenticated liveness probe for cloudflared and monitoring."""
     return {"ok": True, "version": app.version}
 
 
@@ -240,10 +232,10 @@ def limits(email: str = Depends(require_email)) -> Dict[str, Any]:
         "gbfs_split_max_terms": CONFIG.max_gbfs_split_max_terms,
         "gbfs_c_cancel_max_terms": CONFIG.max_gbfs_c_cancel_max_terms,
         "algo_grace_s": CONFIG.algo_grace_s,
-        # Input limits shared with the CLI, checked before parsing.
-        "input_limits": asdict(CONFIG.input_limits),
         "post_timeout_s": CONFIG.post_timeout_s,
         "allowed_algorithms": list(CONFIG.allowed_algorithms),
+        # Input limits shared with the CLI, checked before parsing.
+        "input_limits": asdict(CONFIG.input_limits),
     }
 
 
@@ -252,8 +244,8 @@ _VENDORED = {"mathjax/tex-svg.js": "application/javascript"}
 
 @app.get("/static/{name:path}")
 def static_asset(name: str) -> FileResponse:
-    """The vendored front-end assets, by explicit allowlist (never the page itself, which is
-    served by `/` behind auth). Unauthenticated: a script file carries nothing to protect and
+    """The vendored page assets, by explicit allowlist. The page itself is served by `/`
+    behind auth. These are unauthenticated, since a script file carries nothing to protect and
     the browser requests it before any credential exchange."""
     if name not in _VENDORED:
         raise HTTPException(status_code=404)
@@ -262,10 +254,9 @@ def static_asset(name: str) -> FileResponse:
 
 @app.get("/")
 def index(email: str = Depends(require_email)) -> FileResponse:
-    """Serve the single-page UI — gated by auth so the browser prompts on page
-    load (Basic mode) and the cached credentials ride along on the /api/* fetches.
-    In cloudflare mode the Access JWT is present on this request too; in dev mode
-    auth is bypassed."""
+    """Serve the single-page UI behind auth, so in Basic mode the browser prompts on page
+    load and the cached credentials ride along on the /api/* fetches. In cloudflare mode the
+    Access JWT is present on this request too, and in dev mode auth is bypassed."""
     return FileResponse(_STATIC / "index.html")
 
 
@@ -288,14 +279,14 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
                            raw_input=body.expr)
         raise HTTPException(status_code=400, detail={"unsafe_input": e.reasons})
 
-    # 2b) Convert s()/chain() to ab/sb, retaining supported denominator sums as
-    #     opaque_den markers. Keep the original string too: gbfs_e and gbfs_f split
-    #     its additive terms before atomization combines them over a common denominator.
+    # 2b) Convert s() and chain() to ab/sb, retaining supported denominator sums as opaque_den
+    #     markers. The original string is kept too, since gbfs_e and gbfs_f split its additive
+    #     terms before atomization combines them over a common denominator.
     raw_original = body.expr
     from ampzip.simplifier.atomize import atomize, AtomizeError, has_opaque_den
     from ampzip.simplifier.validate import validate, SIZE_LIMIT_TAGS, ENGINE_LIMIT_TAGS
-    # atomize + validate are the CPU-bound sympy stage; bound their concurrency so a burst
-    # of large inputs cannot occupy every request thread (503 on sustained saturation).
+    # atomize and validate are the CPU-bound sympy stage. Their concurrency is bounded so a
+    # burst of large inputs cannot occupy every request thread, with a 503 on sustained saturation.
     with _atomize_slot():
         # Atomize both the input and the optional target before validation.
         try:
@@ -307,11 +298,11 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
             raise HTTPException(status_code=422, detail={"atomize_failed": str(e)})
         body = body.model_copy(update={"expr": atomic_expr, "target": atomic_target})
 
-        # 3) semantic validation (now safe to parse). enforce_size_limits=False: the SFT/CDS
-        #    size budget must not reject the whole request, because a too-big expression is
-        #    still fair game for the model-free gbfs family. Size issues are reported in
-        #    v.issues (SIZE_LIMIT_TAGS) and handled by the drop filter below; only UNIVERSAL
-        #    failures (atoms/symbols/coeffs/leg labels/n_point) 422 here.
+        # 3) Semantic validation. With enforce_size_limits=False the SFT and CDS size budget does
+        #    not reject the whole request, because a too-big expression is still fair game for
+        #    the gbfs family. Size issues are reported in v.issues under SIZE_LIMIT_TAGS and
+        #    handled by the drop filter below. Only failures that apply to every backend, in the
+        #    atoms, symbols, coefficients, leg labels or n_point, give a 422 here.
         v = validate(body.expr, override_n_point=body.n_point, enforce_size_limits=False)
         if not v.ok:
             issues = [{"tag": i.tag, "message": i.message} for i in v.issues]
@@ -326,7 +317,7 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
         audit.audit_reject(email=email, stage="algorithms", detail=e.detail,
                            raw_input=body.expr)
         raise
-    clamped["raw_input"] = raw_original   # for gbfs_e/gbfs_f term splitting
+    clamped["raw_input"] = raw_original   # for the term splitting of gbfs_e and gbfs_f
 
     # 5) Route by denominator support, checkpoint size limits and engine restrictions.
     #    Each filter updates the current algorithm list. Use the shared GBFS_FAMILY
@@ -339,9 +330,9 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
         else:
             notes.append(f"{field}: {change}")
 
-    # 5a) Opaque polynomial denominator — a gbfs-FAMILY capability (SFT/CDS would mangle the
-    #     opaque_den(S) marker). Keep ALL selected gbfs variants, drop only the non-gbfs ones;
-    #     if none was selected, fall back to model_free_gbfs.
+    # 5a) A sum-denominator is a gbfs-family capability, since SFT and CDS would mangle the
+    #     opaque_den(S) marker. Keep every selected gbfs variant and drop the others. If none
+    #     was selected, fall back to model_free_gbfs.
     if has_opaque_den(atomic_expr):
         allowed_gbfs = [a for a in GBFS_FAMILY if a in CONFIG.allowed_algorithms]
         if not allowed_gbfs:
@@ -359,10 +350,10 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
         notes.append("opaque (polynomial) denominator detected — running gbfs only"
                      + (f"; dropped {dropped}" if dropped else ""))
 
-    # 5b) Expression exceeds the SFT/CDS size budget. Those checkpoints have fixed
-    #     observation widths, so they cannot run — but the model-free gbfs family has no such
-    #     limit. Drop SFT/CDS and keep gbfs; if nothing gbfs was selected, there is nothing
-    #     left to run, so 422 with the size issues plus a pointer to gbfs.
+    # 5b) The expression exceeds the SFT and CDS size budget. Those checkpoints have fixed
+    #     observation widths, so they cannot run, while the gbfs family has no such limit. Drop
+    #     SFT and CDS and keep gbfs. If no gbfs variant was selected there is nothing left to
+    #     run, so answer 422 with the size issues and a pointer to gbfs.
     size_issues = [i for i in v.issues if i.tag in SIZE_LIMIT_TAGS]
     if size_issues:
         gbfs_kept = [a for a in clamped["algorithms"] if a in GBFS_FAMILY]
@@ -381,9 +372,9 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
             notes.append("expression exceeds SFT/CDS size limits — running gbfs only; "
                          f"dropped {dropped}")
 
-    # Engine route: a rational coefficient or the imaginary unit is accepted by the learned
-    # backends but not representable by the search engine (LIMIT_ENGINE_COEFF). Drop the
-    # search family with a note; 422 only when nothing is left to run.
+    # The engine route. A rational coefficient or the imaginary unit is accepted by the neural
+    # baselines but the search engine cannot represent it, which LIMIT_ENGINE_COEFF marks. The
+    # search family is dropped with a note, and a 422 follows only when nothing is left to run.
     engine_issues = [i for i in v.issues if i.tag in ENGINE_LIMIT_TAGS]
     if engine_issues:
         kept = [a for a in clamped["algorithms"] if a not in GBFS_FAMILY]
@@ -397,8 +388,8 @@ def submit_job(body: SubmitRequest, email: str = Depends(require_email)) -> Dict
             raise HTTPException(status_code=422, detail=detail)
         clamped["algorithms"] = kept
         clamps["algorithms_dropped_engine"] = dropped
-        notes.append("search engine cannot represent the input (" +
-                     "; ".join(i.message for i in engine_issues) + f") — dropped {dropped}")
+        notes.append("the search engine cannot represent the input, " +
+                     ", ".join(i.message for i in engine_issues) + f", so {dropped} was dropped")
 
     clamped["clamped"] = clamps
     try:
@@ -424,7 +415,7 @@ def get_job(job_id: str, email: str = Depends(require_email)) -> Dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     if job.email != email:
-        # Don't leak existence to non-owners.
+        # A non-owner sees the same 404 as for a missing job.
         raise HTTPException(status_code=404, detail="job not found")
     return job.public_dict()
 
@@ -441,13 +432,11 @@ def cancel_job(job_id: str, email: str = Depends(require_email)) -> Dict[str, An
 
 
 # --- numerical equivalence check --------------------------------------------
-def _flat_subs(n_point: int, ab_cls, sb_cls) -> Dict[Any, Any]:
-    """{ab(i,j): ±Symbol('abij'), sb(i,j): ±Symbol('sbij')} for 1<=i,j<=n, i!=j.
+def _finite_field_compare(A_text: str, B_text: str, n_point: int, rng=None) -> Tuple[Optional[bool], str]:
+    """Compare two atomized expressions with `ampzip.verify.compare`.
 
-    spinorhelicity's check_numerical_equiv_local uses flat-symbol names
-    (ab12, sb34, ...) keyed only by the i<j canonical ordering. Spinor
-    brackets are antisymmetric: <ji> = -<ij>, so non-canonical inputs
-    like ab(4,1) get mapped to -Symbol('ab14') here.
+    Returns (equiv, method): True when every sampled point agrees, False on a mismatch,
+    None when too many points are singular. Other errors propagate.
     """
     from ampzip.verify import DEFAULT_K, DEFAULT_PRIMES, compare, equal
 
@@ -497,10 +486,10 @@ def numerical_check(body: NumCheckRequest,
     """Compare A and B exactly mod p at random on-shell points.
 
     check_status is matched, mismatch or inconclusive, and equiv True, False or None. A
-    mismatch is certain; a match is probabilistic evidence. Inconclusive means too many
+    mismatch is certain and a match is probabilistic evidence. Inconclusive means too many
     sampled points were singular. Input and program errors remain HTTP errors.
     """
-    # 1) rate limit (cheap, shared with /api/jobs)
+    # 1) rate limit, shared with /api/jobs
     if not LIMITER.allow(email):
         audit.audit_reject(email=email, stage="ratelimit",
                            detail=f"{CONFIG.rate_per_min}/min")
@@ -516,14 +505,13 @@ def numerical_check(body: NumCheckRequest,
                            raw_input=f"A={body.A!r} B={body.B!r}"[:200])
         raise HTTPException(status_code=400, detail={"unsafe_input": e.reasons})
 
-    # The whole atomize -> validate -> parse -> numeric-eval body is CPU-bound sympy on
-    # untrusted input; bound its concurrency alongside /api/jobs (503 on saturation).
+    # The whole atomize, validate and compare body is CPU-bound sympy on untrusted input, so
+    # its concurrency is bounded alongside /api/jobs, with a 503 on saturation.
     from ampzip.simplifier.atomize import atomize, AtomizeError
     from ampzip.simplifier.validate import validate, _get_bracket_classes
     with _atomize_slot():
-        # 2b) Expand s()/chain() to ab/sb, retaining denominator sums as opaque_den(S).
-        #     Each marker represents 1/S with S an ab/sb polynomial. Step 4 converts
-        #     the markers to reciprocals for numerical evaluation.
+        # 2b) Expand s() and chain() to ab/sb, retaining denominator sums as opaque_den(S),
+        #     each marker representing 1/S with S an ab/sb polynomial.
         try:
             A_atomic = atomize(body.A, n_hint=body.n_point, allow_opaque_den=True)
             B_atomic = atomize(body.B, n_hint=body.n_point, allow_opaque_den=True)
@@ -532,9 +520,9 @@ def numerical_check(body: NumCheckRequest,
                                raw_input=f"A={body.A!r} B={body.B!r}"[:200])
             raise HTTPException(status_code=422, detail={"atomize_failed": str(e)})
 
-        # 3) validate both (on the atomized ab/sb form) — must agree on n_point.
-        #    enforce_size_limits=False: the numerical check runs no model, so the SFT/CDS size
-        #    budget is irrelevant — a big expression is still perfectly evaluable.
+        # 3) Validate both on the atomized ab/sb form. They must agree on n_point. With
+        #    enforce_size_limits=False the SFT and CDS size budget does not apply, since the
+        #    numerical check runs no model and a big expression is still evaluable.
         vA = validate(A_atomic, override_n_point=body.n_point, enforce_size_limits=False)
         if not vA.ok:
             issues = [{"tag": i.tag, "message": i.message} for i in vA.issues]
@@ -556,48 +544,18 @@ def numerical_check(body: NumCheckRequest,
             raise HTTPException(status_code=400,
                 detail=f"numerical check supports only 4/5/6-pt (got n_point={n_point})")
 
-        # 4) parse both (atomized ab/sb form), convert to flat-symbol form
-        ab_cls, sb_cls = _get_bracket_classes()
-        local_dict = {"ab": ab_cls, "sb": sb_cls, "I": sp.I,
-                      "opaque_den": sp.Function("opaque_den")}
+        # 4) exact comparison of the atomized texts
         try:
-            from ampzip.simplifier.parse import parse_expr
-            A_expr = parse_expr(A_atomic, local_dict, lenient=True)
-            B_expr = parse_expr(B_atomic, local_dict, lenient=True)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"parse error: {e}")
-        # opaque_den(S) -> 1/S so the sum lands in a real denominator before evaluation.
-        from ampzip.verify.verifier import _strip_opaque_den
-        A_expr = _strip_opaque_den(A_expr)
-        B_expr = _strip_opaque_den(B_expr)
-        flat = _flat_subs(n_point, ab_cls, sb_cls)
-        A_flat = A_expr.subs(flat)
-        B_flat = B_expr.subs(flat)
-
-        # 5) numerical equivalence check (pre-computed momenta; sub-second)
-        from add_ons.numerical_evaluations import check_numerical_equiv_local
-        tokens = _all_bracket_names(n_point)
-        try:
-            valid, rel_diff = check_numerical_equiv_local(tokens, A_flat, B_flat, npt=n_point)
-            rel_diff = float(rel_diff)
-            if math.isfinite(rel_diff):
-                equiv = bool(valid)
-                check_status = "matched" if equiv else "mismatch"
-            else:
-                equiv, rel_diff, check_status = None, None, "inconclusive"
-        except (ZeroDivisionError, FloatingPointError, OverflowError):
-            # A singular point or non-finite evaluation gives no comparison.
-            # Type/parse/import errors and unexpected failures are still errors.
-            equiv, rel_diff, check_status = None, None, "inconclusive"
+            equiv, method = _finite_field_compare(A_atomic, B_atomic, n_point)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"numerical evaluation failed: {e}")
+        check_status = {True: "matched", False: "mismatch", None: "inconclusive"}[equiv]
 
     return {
         "check_status": check_status,
         "equiv": equiv,
-        "rel_diff": rel_diff,
         "n_point": n_point,
         "canonical_A": vA.canonical_expr_str,
         "canonical_B": vB.canonical_expr_str,
-        "method": "check_numerical_equiv_local (2 precomputed on-shell configurations, tolerance 2e-9)",
+        "method": method,
     }

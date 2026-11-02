@@ -52,7 +52,7 @@ def main():
     try:
         import ampzip_engine  # noqa: F401
     except Exception as e:  # noqa: BLE001
-        print(f"[skip] Rust engine unavailable ({e!r}); build ampzip_engine to run the suite.")
+        print(f"[skip] the engine is unavailable, {e!r}. Build ampzip_engine to run the suite.")
         return 0
 
     import test_atomize
@@ -74,6 +74,9 @@ def main():
     import test_target_judge
     import test_cds_timeout
     import test_engine_limits
+    import test_input_limits
+    import test_input_property
+    import test_numerical_check
 
     results = [
         _run("atomize", test_atomize.main),
@@ -95,6 +98,9 @@ def main():
         _run("cds_timeout", test_cds_timeout.main),
         _run("webservice_clamps", test_webservice_clamps.main),
         _run("engine_limits", test_engine_limits.main),
+        _run("input_limits", test_input_limits.main),
+        _run("input_property", test_input_property.main),
+        _run("numerical_check", test_numerical_check.main),
         _run("gbfs_family_smoke", _gbfs_smoke),
     ]
     n_ok = sum(results)

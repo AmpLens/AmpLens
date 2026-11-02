@@ -29,6 +29,28 @@ Four, five or six legs are supported. The number is inferred from the largest le
 
 ## 3. Size
 
+### Input limits
+
+The CLI and the web service check every expression and target against the limits below before
+parsing. A refused input lists each exceeded limit with the offending text and the flag or
+variable that raises it. The defaults admit every input of the paper's test sets. The web
+service reports its values under `input_limits` in `GET /api/limits`.
+
+| CLI flag / web variable | Default | Limits |
+|---|---|---|
+| `--max-input-chars` / `WEBSVC_MAX_INPUT_CHARS` | 32000 | Length of the expression in characters. The longest paper input, a five-point Yang-Mills form, has about 21000. A public web deployment uses a lower value, such as the 8000 of the example configuration, since parsing runs in the request thread. |
+| `--max-int-digits` / `WEBSVC_MAX_INT_DIGITS` | 6 | Digits of any integer written in the expression, whether a coefficient, an exponent or a leg label. |
+| `--max-exponent` / `WEBSVC_MAX_EXPONENT` | 100 | Largest exponent, with nested powers multiplied out, so (x**4)**30 counts as 120. |
+| `--max-power-nesting` / `WEBSVC_MAX_POWER_NESTING` | 0 | Powers nested inside another power. 0 refuses (x**2)**3 and x**2**3, and 1 admits one level. |
+| `--max-nesting-depth` / `WEBSVC_MAX_NESTING_DEPTH` | 50 | Depth of nested parentheses and square brackets. |
+| `--max-number-digits` / `WEBSVC_MAX_NUMBER_DIGITS` | 1000 | Estimated digits of the largest number the numeric parts produce. 999**999 has about 2997. At most 4300. |
+
+Three rules are fixed: only the characters of the notation in section 1 are accepted, `^` is
+refused with a hint to write `**`, and non-ASCII look-alikes such as `−`, `×` or `（` are refused
+with the ASCII character to use.
+
+### Search size
+
 For the GBFS variants, `--gbfs-max-terms` limits numerator expansion when parsing the input and applying moves. An input that exceeds this limit is rejected. Moves that exceed it are skipped. Large searches are also constrained by the move budget, time limit and [available memory](KNOWN_ISSUES.md).
 
 Coefficient overflow rejects the input or skips the affected move. Skipped moves are counted in `extra.overflow_skips`.
@@ -80,7 +102,7 @@ The tables list CLI options and their corresponding API fields where available. 
 | `--per-step-timeout` / `per_step_timeout` | 30 s | Time limit for one SFT identity application in SymPy. | Abandons the step and increments `timeout_count`. |
 | `--sample-timeout` / `sample_timeout` | 120 s | SFT: time limit for one rollout, checked between steps. CDS: time spent waiting for decoding, excluding checkpoint loading and post-processing. | SFT stops at a step boundary with the best form found. CDS reports `timed_out=True`, `stop_reason=time` and `decode_still_running=True`, with no expression. Decoding continues in the background, and the CLI waits for it to finish before exiting. |
 | `--sft-patience` / `sft_patience` | 0 (off) | Consecutive SFT steps without improvement. | Stops the rollout. |
-| `--sft-beam-size` / `sft_beam_size`, `--sft-beam-temperature` / `sft_beam_temperature` | 5, 1.5 | Total rollouts (one greedy and the rest sampled) and sampling temperature for `sft_best_of_n`. | — |
+| `--sft-beam-size` / `sft_beam_size`, `--sft-beam-temperature` / `sft_beam_temperature` | 5, 1.5 | Total rollouts, one greedy and the rest sampled, and the sampling temperature for `sft_best_of_n`. | — |
 | `--cds-beam-size` / `cds_beam_size`, `--cds-temperature` / `cds_temperature`, `--cds-nucleus-p` / `cds_nucleus_p`, `--cds-length-penalty` / `cds_length_penalty` | 5, 1.5, 0, 1 | CDS beam size, temperature, nucleus probability threshold and length penalty. | — |
 
 ### Execution

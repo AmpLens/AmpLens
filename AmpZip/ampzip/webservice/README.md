@@ -73,7 +73,7 @@ Set the following environment variables before starting the service.
 | `WEBSVC_JOB_TIMEOUT_S` | Time in seconds before a job is marked `timeout`. |
 | `WEBSVC_RATE_PER_MIN` | Shared limit on job submissions and numerical checks per user per minute. |
 | `WEBSVC_MAX_GBFS_MAX_SECONDS`, `WEBSVC_MAX_GBFS_MAX_APPS`, `WEBSVC_MAX_GBFS_MAX_TERMS`, `WEBSVC_MAX_GBFS_THREADS`, `WEBSVC_MAX_GBFS_SPLIT_MAX_TERMS`, `WEBSVC_MAX_GBFS_C_CANCEL_MAX_TERMS` | Upper limits on GBFS request parameters. Current limits are available from `GET /api/limits`, and parameter adjustments are reported in the submission response. |
-| `WEBSVC_MAX_INPUT_CHARS` | Maximum input length in characters. Longer inputs are rejected. |
+| `WEBSVC_MAX_INPUT_CHARS`, `WEBSVC_MAX_INT_DIGITS`, `WEBSVC_MAX_EXPONENT`, `WEBSVC_MAX_POWER_NESTING`, `WEBSVC_MAX_NESTING_DEPTH`, `WEBSVC_MAX_NUMBER_DIGITS` | Input limits, the same as the CLI's `--max-*` flags (see `docs/LIMITS.md`). An input over any of them is rejected with HTTP 400 before parsing, naming each exceeded limit. Current values are under `input_limits` in `GET /api/limits`. The defaults admit every paper input; a public deployment keeps `WEBSVC_MAX_INPUT_CHARS` near 8000. |
 | `WEBSVC_ALGO_GRACE_S` | Additional time in seconds to wait for a backend after its time budget expires. |
 | `WEBSVC_POST_TIMEOUT_S` | Time limit in seconds for SymPy post-processing of each backend's output. |
 | `WEBSVC_MAX_PARALLEL_ALGOS` | Maximum number of backends running concurrently within each job. |

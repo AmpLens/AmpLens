@@ -2,7 +2,7 @@
 
 Parses the input string and checks its atoms, symbols, coefficients and leg labels.
 It also checks the number of external legs and checkpoint size limits. Returns a
-`ValidationResult`. Callers must not run any backend when `result.ok` is False.
+`ValidationResult`, and no backend runs when `result.ok` is False.
 """
 
 from __future__ import annotations
@@ -20,21 +20,20 @@ from .result import ValidationResult, ValidationIssue
 from .parse import parse_expr, ParseError
 
 
-# The three size checks use the SFT input limits defined in limits.py, which are
-# also applied to CDS. They do not constrain the model-free GBFS backends. With
-# `enforce_size_limits=False`, the size tags are still reported for routing but do
-# not make the result invalid. `ENGINE_LIMIT_TAGS` are also used for routing. Other
-# `LIMIT_*` tags describe invalid inputs and always fail validation.
+# The three size checks use the SFT input limits of limits.py, which also apply to CDS. They
+# do not constrain the gbfs family. With `enforce_size_limits=False` the size tags are still
+# reported for routing but do not make the result invalid. `ENGINE_LIMIT_TAGS` are also used
+# for routing. The other `LIMIT_*` tags describe invalid inputs and always fail validation.
 SIZE_LIMIT_TAGS = frozenset({"LIMIT_TERMS", "LIMIT_BRACKETS_PER_TERM", "LIMIT_BRACKETS_TOTAL"})
-# Inputs the learned backends accept but the search engine cannot represent: non-integer
-# rational coefficients (the engine's reciprocal needs a unit coefficient) and the imaginary
-# unit. Like the size tags these do not fail validation; the routers drop the search family
-# with a note (and fail only when nothing is left to run).
+# Inputs the neural baselines accept but the search engine cannot represent, non-integer
+# rational coefficients, since the engine's reciprocal needs a unit coefficient, and the
+# imaginary unit. Like the size tags these do not fail validation. The routers drop the search
+# family with a note and fail only when nothing is left to run.
 ENGINE_LIMIT_TAGS = frozenset({"LIMIT_ENGINE_COEFF"})
 
 
 def _get_bracket_classes():
-    """The package's own ab/sb atoms (ampzip.atoms); kept as the accessor every caller uses."""
+    """The package's own ab/sb atoms from ampzip.atoms, the accessor every caller uses."""
     from ..atoms import bracket_classes  # noqa: WPS433
     return bracket_classes()
 
@@ -59,7 +58,7 @@ def _all_bracket_calls(expr: sp.Expr, ab_cls, sb_cls):
 
 
 def _count_terms(expr: sp.Expr) -> int:
-    """Number of summands at the top level (sympy.Add.args). Non-Add → 1."""
+    """The number of top-level summands, sympy.Add.args, which is 1 for anything but an Add."""
     if isinstance(expr, sp.Add):
         return len(expr.args)
     return 1
@@ -73,23 +72,13 @@ def _term_iter(expr: sp.Expr):
 
 
 def _brackets_in(expr: sp.Expr, ab_cls, sb_cls) -> int:
-    """Count occurrences of ab/sb in a single term (powers count multiplicity)."""
-    n = 0
-    for sub in sp.preorder_traversal(expr):
-        if isinstance(sub, sp.Pow):
-            base, exp_ = sub.args
-            if isinstance(base, (ab_cls, sb_cls)) and exp_.is_integer:
-                # only count once below via preorder; but Pow includes base too,
-                # so subtract the implicit single-count to add the exponent count.
-                # Simpler: handle Pow explicitly and skip the inner base in main loop.
-                pass
-    # Simpler implementation: flatten via Mul.args
+    """Count the ab/sb occurrences in a single term, a power counting its exponent."""
     return _count_brackets_flat(expr, ab_cls, sb_cls)
 
 
 def _count_brackets_flat(expr: sp.Expr, ab_cls, sb_cls) -> int:
-    """Count ab/sb factor multiplicity in a single term."""
-    # For a Mul: each arg may be Pow(bracket, n) or bracket itself.
+    """Count the ab/sb factor multiplicity in a single term."""
+    # Each factor of a Mul may be a bracket or a Pow of one.
     if isinstance(expr, sp.Mul):
         factors = expr.args
     else:
@@ -102,7 +91,7 @@ def _count_brackets_flat(expr: sp.Expr, ab_cls, sb_cls) -> int:
             base, exp_ = f.args
             if isinstance(base, (ab_cls, sb_cls)) and exp_.is_Integer:
                 n += abs(int(exp_))
-        # ignore nested Adds and other; they would be unusual in a single term
+        # Nested Adds and other factors are ignored. They are unusual in a single term.
     return n
 
 
@@ -113,15 +102,15 @@ def _distinct_brackets(expr: sp.Expr, ab_cls, sb_cls) -> Set[Tuple[str, int, int
             args = sub.args
             if len(args) == 2 and all(a.is_Integer for a in args):
                 i, j = int(args[0]), int(args[1])
-                # Normalize order (ab is antisymmetric in args; same bracket up to sign)
+                # Normalise the order. A bracket is antisymmetric, so it is the same up to sign.
                 key = (type(sub).__name__, min(i, j), max(i, j))
                 out.add(key)
     return out
 
 
 def _numeric_constant_issues(expr: sp.Expr) -> list:
-    """Reject Float and transcendental NumberSymbols (pi, E, EulerGamma, …).
-    Accept Integer, Rational, ImaginaryUnit (I). Returns list of ValidationIssue."""
+    """Reject Float and the transcendental NumberSymbols pi, E, EulerGamma and the like, and
+    accept Integer, Rational and the imaginary unit. Returns a list of ValidationIssue."""
     issues = []
     for sub in sp.preorder_traversal(expr):
         if isinstance(sub, sp.Float):
@@ -131,7 +120,7 @@ def _numeric_constant_issues(expr: sp.Expr) -> list:
                 detail={"value": str(sub)},
             ))
         elif isinstance(sub, sp.NumberSymbol):
-            # sp.pi, sp.E, sp.EulerGamma, sp.GoldenRatio, sp.Catalan
+            # sp.pi, sp.E, sp.EulerGamma, sp.GoldenRatio and sp.Catalan
             issues.append(ValidationIssue(
                 tag="LIMIT_COEFF_CLASS",
                 message=f"transcendental constant '{sub}' is outside the "
@@ -142,9 +131,9 @@ def _numeric_constant_issues(expr: sp.Expr) -> list:
 
 
 def _engine_coefficient_issues(expr: sp.Expr) -> list:
-    """What the Rust search engine refuses although validation accepts it: a rational
-    coefficient that is not an integer (poly.rs `ratfn_recip`: 'reciprocal with non-unit
-    coefficient') and the imaginary unit (parse.rs: unknown identifier 'I')."""
+    """What the search engine refuses although validation accepts it, a rational coefficient
+    that is not an integer, which `ratfn_recip` in poly.rs rejects as a reciprocal with a
+    non-unit coefficient, and the imaginary unit."""
     issues = []
     seen = set()
     for sub in sp.preorder_traversal(expr):
@@ -172,14 +161,14 @@ def _engine_coefficient_issues(expr: sp.Expr) -> list:
 
 
 def _algebraic_pow_issues(expr: sp.Expr, ab_cls, sb_cls) -> list:
-    """Reject Pow with non-integer exponent (sqrt, cube root, etc.) — out of
-    training distribution. Returns list of ValidationIssue."""
+    """Reject a Pow with a non-integer exponent such as a square or cube root, which is outside
+    the training distribution. Returns a list of ValidationIssue."""
     issues = []
     for sub in sp.preorder_traversal(expr):
         if isinstance(sub, sp.Pow):
             base, exp_ = sub.args
             if not exp_.is_Integer:
-                # tolerated exception: ab/sb base ** non-integer — still illegal
+                # An ab/sb base with a non-integer exponent is illegal too.
                 base_repr = type(base).__name__
                 issues.append(ValidationIssue(
                     tag="LIMIT_COEFF_CLASS",
@@ -194,7 +183,7 @@ def _algebraic_pow_issues(expr: sp.Expr, ab_cls, sb_cls) -> list:
 
 def validate(raw_input: str, override_n_point: Optional[int] = None,
              enforce_size_limits: bool = True) -> ValidationResult:
-    """Parse + check input. Never raises — returns ValidationResult.
+    """Parse and check the input, returning a ValidationResult.
 
     `enforce_size_limits` defaults to True. When False, checkpoint size issues
     (`SIZE_LIMIT_TAGS`) are still reported but do not make `ok` False. CLI and web
@@ -210,8 +199,8 @@ def validate(raw_input: str, override_n_point: Optional[int] = None,
     ab_cls, sb_cls = _get_bracket_classes()
     local_dict = {"ab": ab_cls, "sb": sb_cls, "I": sp.I}
 
-    # 1) Parse. Lenient: unknown calls and names come back as undefined Functions / Symbols
-    #    so the atom checks below report them under their own tags; nothing is executed.
+    # 1) Parse leniently. Unknown calls and names come back as undefined Functions and
+    #    Symbols so the atom checks below report them under their own tags.
     try:
         expr = parse_expr(raw_input, local_dict, lenient=True)
     except ParseError as e:
@@ -257,19 +246,19 @@ def validate(raw_input: str, override_n_point: Optional[int] = None,
                 detail={"symbol": sname},
             ))
 
-    # 3) Coefficients (Float + NumberSymbol) + non-integer Pow exponents (sqrt etc.)
+    # 3) Coefficients, Float and NumberSymbol, and non-integer Pow exponents such as sqrt
     issues.extend(_numeric_constant_issues(expr))
     issues.extend(_algebraic_pow_issues(expr, ab_cls, sb_cls))
     issues.extend(_engine_coefficient_issues(expr))
 
-    # If atoms/symbols/coefficients already failed, don't infer n_point or count
+    # If the atoms, symbols or coefficients already failed, infer no n_point and count nothing.
     if any(i.tag.startswith("LIMIT_ATOM") or i.tag.startswith("LIMIT_SYMBOL")
            or i.tag == "LIMIT_COEFF_CLASS"
            for i in issues):
         return ValidationResult(ok=False, inferred_n_point=None,
                                 canonical_expr_str=canonical_str, issues=issues)
 
-    # 4) Leg labels: each bracket arg must be a positive integer
+    # 4) Leg labels. Each bracket argument must be a positive integer.
     max_leg = 0
     for head, args in _all_bracket_calls(expr, ab_cls, sb_cls):
         if len(args) != 2:
@@ -286,17 +275,12 @@ def validate(raw_input: str, override_n_point: Optional[int] = None,
                 ))
                 break
         else:
-            # A self-bracket `ab(i,i)` or `sb(i,i)` is identically zero, but it can
-            # remain unevaluated in the SymPy expression used by the numerical
-            # check. `_flat_subs` supplies only `i != j` substitutions, so
-            # `lambdify` can leave an undefined `ab` or `sb` call. The resulting
-            # evaluation error causes `/api/numerical_check` to return HTTP 500.
-            # Reject self-brackets here for CLI inputs, jobs and numerical checks.
+            # A self-bracket `ab(i,i)` is zero but stays an unevaluated call in SymPy,
+            # which the backends would treat as an ordinary atom.
             if args[0] == args[1]:
                 issues.append(ValidationIssue(
                     tag="LIMIT_LEG_LABEL",
-                    message=f"{head}{args} is a self-bracket (equal legs) — "
-                            f"<ii>=[ii]=0, not a valid input",
+                    message=f"{head}{args} has equal legs, and <ii>=[ii]=0",
                 ))
                 continue
             for a in args:
@@ -306,7 +290,7 @@ def validate(raw_input: str, override_n_point: Optional[int] = None,
         return ValidationResult(ok=False, inferred_n_point=None,
                                 canonical_expr_str=canonical_str, issues=issues)
 
-    # 5) n_point inference / override check
+    # 5) n_point inference and the override check
     inferred_n_point = max_leg if max_leg else None
     if override_n_point is not None:
         if override_n_point not in SUPPORTED_N_POINTS:
