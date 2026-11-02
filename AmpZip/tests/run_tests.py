@@ -7,8 +7,10 @@ Runs the check suites and a smoke test of the GBFS backends, then reports a
 pass/fail summary. Suite exceptions and nonzero return values are reported as
 failures. The script requires the dependencies used by those suites, including
 the web test dependencies, but does not require pytest. `pytest tests/` is a
-separate test entry point.
+separate test entry point. The engine must be importable; without it the run
+fails instead of passing with nothing checked.
 """
+import importlib
 import os
 import sys
 
@@ -19,6 +21,30 @@ for _p in (_ROOT, _TESTS):
         sys.path.insert(0, _p)
 import ampzip.simplifier._paths  # noqa: F401,E402  (bootstraps the RL backend)
 
+# Each entry is a tests/test_<name>.py module with a main() returning 0 on success.
+SUITES = [
+    "atomize", "reconstruct", "gbfs_f", "spurious", "parse", "atoms", "verify_engine",
+    "gbfs_checkpoint", "gbfs_packing", "gbfs_stop_reasons", "gbfs_e_budget",
+    "registry_defaults", "validate_engine_coeff", "post_timeout", "display_count",
+    "target_judge", "cds_timeout", "webservice_clamps", "engine_limits", "input_limits",
+    "input_property", "numerical_check", "gbfs_invariants",
+]
+
+# Test files that are deliberately not run here, with the reason.
+NOT_REGISTERED = {
+    "backends_smoke": "pytest form of the inline gbfs smoke below",
+    "gate": "pytest wrapper around atomize, reconstruct and gbfs_f",
+    "gbfs_resume": "needs data/az_v2 and runs 200k moves",
+    "cds_completed_timing": "paper script, not exported",
+    "cds_end_to_end": "paper script, not exported",
+    "comparison_protocol": "paper script, not exported",
+    "default_continuation": "paper script, not exported",
+    "paper_data_sources": "paper script, not exported",
+    "paper_number_checks": "paper script, not exported",
+    "ym5pt_sign_release": "research script, not exported",
+    "ym5pt_uniform_budget": "research script, not exported",
+}
+
 
 def _run(label, fn):
     try:
@@ -28,6 +54,18 @@ def _run(label, fn):
         return False
     print(f"[{'ok  ' if ok else 'FAIL'}] {label}")
     return ok
+
+
+def _registration():
+    """Every tests/test_*.py present is either a registered suite or listed with a reason."""
+    present = sorted(f[5:-3] for f in os.listdir(_TESTS) if f.startswith("test_") and f.endswith(".py"))
+    missing = [n for n in present if n not in SUITES and n not in NOT_REGISTERED]
+    absent = [n for n in SUITES if n not in present]
+    for n in missing:
+        print(f"       tests/test_{n}.py is not registered in run_tests.py")
+    for n in absent:
+        print(f"       registered suite test_{n}.py is missing")
+    return 1 if missing or absent else 0
 
 
 def _gbfs_smoke():
@@ -52,57 +90,14 @@ def main():
     try:
         import ampzip_engine  # noqa: F401
     except Exception as e:  # noqa: BLE001
-        print(f"[skip] the engine is unavailable, {e!r}. Build ampzip_engine to run the suite.")
-        return 0
+        print(f"[FAIL] the engine is unavailable, {e!r}. Build ampzip_engine to run the suite.")
+        return 1
 
-    import test_atomize
-    import test_reconstruct
-    import test_gbfs_f
-    import test_spurious
-    import test_parse
-    import test_atoms
-    import test_verify_engine
-    import test_gbfs_checkpoint
-    import test_gbfs_packing
-    import test_gbfs_stop_reasons
-    import test_gbfs_e_budget
-    import test_registry_defaults
-    import test_validate_engine_coeff
-    import test_post_timeout
-    import test_webservice_clamps
-    import test_display_count
-    import test_target_judge
-    import test_cds_timeout
-    import test_engine_limits
-    import test_input_limits
-    import test_input_property
-    import test_numerical_check
-
-    results = [
-        _run("atomize", test_atomize.main),
-        _run("reconstruct", test_reconstruct.main),
-        _run("gbfs_f", test_gbfs_f.main),
-        _run("spurious", test_spurious.main),
-        _run("parse", test_parse.main),
-        _run("atoms", test_atoms.main),
-        _run("verify_engine", test_verify_engine.main),
-        _run("gbfs_checkpoint", test_gbfs_checkpoint.main),
-        _run("gbfs_packing", test_gbfs_packing.main),
-        _run("gbfs_stop_reasons", test_gbfs_stop_reasons.main),
-        _run("gbfs_e_budget", test_gbfs_e_budget.main),
-        _run("registry_defaults", test_registry_defaults.main),
-        _run("validate_engine_coeff", test_validate_engine_coeff.main),
-        _run("post_timeout", test_post_timeout.main),
-        _run("display_count", test_display_count.main),
-        _run("target_judge", test_target_judge.main),
-        _run("cds_timeout", test_cds_timeout.main),
-        _run("webservice_clamps", test_webservice_clamps.main),
-        _run("engine_limits", test_engine_limits.main),
-        _run("input_limits", test_input_limits.main),
-        _run("input_property", test_input_property.main),
-        _run("numerical_check", test_numerical_check.main),
-        _run("gbfs_family_smoke", _gbfs_smoke),
-    ]
+    results = [_run("registration", _registration)]
+    for name in SUITES:
+        module = importlib.import_module(f"test_{name}")
+        results.append(_run(name, module.main))
+    results.append(_run("gbfs_family_smoke", _gbfs_smoke))
     n_ok = sum(results)
     print(f"\n{n_ok}/{len(results)} suites passed")
     return 0 if n_ok == len(results) else 1
