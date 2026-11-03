@@ -223,8 +223,12 @@ def eval_tree(tree: ast.Expression, names: Dict[str, object]) -> sp.Expr:
         raise ParseError(_DEPTH_MESSAGE, "depth") from e
     except Exception as e:  # noqa: BLE001
         raise ParseError(f"could not evaluate expression: {type(e).__name__}: {e}", "eval") from e
+    if isinstance(value, (int, float, complex)) and not isinstance(value, bool):
+        value = sp.sympify(value)      # a bare number
     if not isinstance(value, sp.Basic):
-        value = sp.sympify(value)      # a number or a sympy-compatible object
+        # A string, a list or a callable is not an expression, and `sympify` would parse a
+        # string with its own evaluator.
+        raise ParseError(f"the expression is a {type(value).__name__}, not an amplitude", "eval")
     return value
 
 
