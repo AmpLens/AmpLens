@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ampzip"
-version = "1.0.0b1"
+version = "1.0.0"
 description = "Training-free simplification of spinor-helicity amplitudes: best-first search over value-preserving identities, with randomized finite-field checks"
 readme = "README.md"
 license = "MIT"
