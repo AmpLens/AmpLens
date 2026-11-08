@@ -147,6 +147,16 @@ jobs:
           "$PY" -m pip install --quiet --only-binary=:all: --find-links dist "ampzip[web,dev]==${{ needs.resolve.outputs.version }}" "amplens-engine==${{ needs.resolve.outputs.version }}"
           "$PY" -c "import ampzip, ampzip_engine; print(ampzip.__version__, ampzip.__file__)"
           "$PY" AmpZip/tests/run_tests.py
+      # run_tests.py imports ampzip from the checkout. This gate tests the installed wheels.
+      - name: Fresh-install gate on the wheels for this platform
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir fresh-wheels
+          python -m pip download --quiet --no-deps --no-index --only-binary=:all: \
+              --find-links dist -d fresh-wheels "amplens-engine==${{ needs.resolve.outputs.version }}"
+          cp dist/ampzip-*.whl fresh-wheels/
+          WHEELS="$PWD/fresh-wheels" bash AmpZip/tests/test_fresh_install.sh
 
   publish-ampzip:
     needs: [resolve, verify-ampzip]
