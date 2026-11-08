@@ -3,7 +3,7 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "amplens-engine"
+name = "ampzip-engine"
 version = "1.0.0"
 description = "Move-execution engine of AmpLens (used by AmpZip): spinor-helicity identities, canonical rational functions, finite-field evaluation"
 license = "MIT"
