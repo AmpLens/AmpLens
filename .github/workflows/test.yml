@@ -39,7 +39,7 @@ jobs:
           if [ -f venv/Scripts/python.exe ]; then PY=venv/Scripts/python.exe; else PY=venv/bin/python; fi
           echo "PY=$PY" >> "$GITHUB_ENV"
           "$PY" -m pip install --quiet --upgrade pip
-          "$PY" -m pip install --quiet --no-index --find-links dist amplens-engine
+          "$PY" -m pip install --quiet --no-index --find-links dist ampzip-engine
           "$PY" -m pip install --quiet "./AmpZip[web,dev]"
       - name: The engine imports from the wheel
         shell: bash

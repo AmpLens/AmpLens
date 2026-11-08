@@ -1,9 +1,9 @@
 # Release workflow. Two tag prefixes:
-#   ampzip-v<version>   builds and publishes amplens-engine + ampzip (versions move in lockstep)
+#   ampzip-v<version>   builds and publishes ampzip-engine + ampzip (versions move in lockstep)
 #   amplens-v<version>  builds and publishes the amplens meta package
 # Build -> check -> install into a clean venv and run the tests -> publish. Only the publish
 # jobs hold `id-token: write`, and each runs in a GitHub environment with required reviewers
-# (pypi-ampzip / pypi-amplens) and a trusted publisher on the PyPI side.
+# (pypi-ampzip-engine / pypi-ampzip / pypi-amplens) and a trusted publisher on the PyPI side.
 #
 # Only final versions (X.Y.Z) and public pre-releases (X.Y.ZbN) are released here. Internal
 # X.Y.Z.devN builds never reach a package index, and alpha, rc and local versions are
@@ -54,7 +54,7 @@ jobs:
           echo "component=$component" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  # ---------------------------------------------------------------- ampzip + amplens-engine
+  # ---------------------------------------------------------------- ampzip + ampzip-engine
   engine-wheels:
     needs: resolve
     if: needs.resolve.outputs.component == 'ampzip'
@@ -144,7 +144,7 @@ jobs:
           python -m venv venv
           if [ -f venv/Scripts/python.exe ]; then PY=venv/Scripts/python.exe; else PY=venv/bin/python; fi
           "$PY" -m pip install --quiet --upgrade pip
-          "$PY" -m pip install --quiet --only-binary=:all: --find-links dist "ampzip[web,dev]==${{ needs.resolve.outputs.version }}" "amplens-engine==${{ needs.resolve.outputs.version }}"
+          "$PY" -m pip install --quiet --only-binary=:all: --find-links dist "ampzip[web,dev]==${{ needs.resolve.outputs.version }}" "ampzip-engine==${{ needs.resolve.outputs.version }}"
           "$PY" -c "import ampzip, ampzip_engine; print(ampzip.__version__, ampzip.__file__)"
           "$PY" AmpZip/tests/run_tests.py
       # run_tests.py imports ampzip from the checkout. This gate tests the installed wheels.
@@ -154,12 +154,33 @@ jobs:
         run: |
           mkdir fresh-wheels
           python -m pip download --quiet --no-deps --no-index --only-binary=:all: \
-              --find-links dist -d fresh-wheels "amplens-engine==${{ needs.resolve.outputs.version }}"
+              --find-links dist -d fresh-wheels "ampzip-engine==${{ needs.resolve.outputs.version }}"
           cp dist/ampzip-*.whl fresh-wheels/
           WHEELS="$PWD/fresh-wheels" bash AmpZip/tests/test_fresh_install.sh
 
-  publish-ampzip:
+  # PyPI accepts one pending trusted publisher per environment, so each project has its own.
+  # The engine goes first because ampzip depends on it.
+  publish-engine:
     needs: [resolve, verify-ampzip]
+    runs-on: ubuntu-latest
+    environment: pypi-ampzip-engine
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: engine-*
+          path: dist
+          merge-multiple: true
+      - name: Publish ampzip-engine
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          packages-dir: dist
+          verbose: true
+
+  publish-ampzip:
+    needs: [resolve, publish-engine]
     runs-on: ubuntu-latest
     environment: pypi-ampzip
     permissions:
@@ -168,9 +189,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
+          name: ampzip-dist
           path: dist
-          merge-multiple: true
-      - name: Publish amplens-engine and ampzip
+      - name: Publish ampzip
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
         with:
           packages-dir: dist

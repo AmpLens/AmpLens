@@ -12,7 +12,7 @@ __version__ = "0.1.0"
 # PyPI distribution name -> (component, import name). Extended as components are added.
 COMPONENTS = {
     "ampzip": ("AmpZip", "ampzip"),
-    "amplens-engine": ("AmpZip engine", "ampzip_engine"),
+    "ampzip-engine": ("AmpZip engine", "ampzip_engine"),
 }
 
 
