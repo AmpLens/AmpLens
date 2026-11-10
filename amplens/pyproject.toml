@@ -22,7 +22,7 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Physics",
 ]
 # The components, pinned to the series released together with this version. `ampzip`
-# pulls its own engine wheel (`amplens-engine`, same series).
+# pulls its own engine wheel (`ampzip-engine`, same series).
 dependencies = [
   "ampzip==1.0.*",
 ]

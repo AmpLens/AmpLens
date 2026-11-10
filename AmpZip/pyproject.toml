@@ -26,10 +26,10 @@ classifiers = [
 ]
 # sympy is pinned to one minor series: its `str()` output defines the canonical spelling every
 # recorded result is compared against. Widen only with a parity test against the stored corpus.
-# The Rust engine is its own distribution, amplens-engine (built by maturin from ampzip/engine,
+# The Rust engine is its own distribution, ampzip-engine (built by maturin from ampzip/engine,
 # import name ampzip_engine), and moves in lockstep with this one; `pip install ampzip` pulls the matching binary wheel.
 dependencies = [
-  "amplens-engine==1.0.*",
+  "ampzip-engine==1.0.*",
   "sympy>=1.13,<1.14",
   "numpy>=1.24",
   "platformdirs>=3",

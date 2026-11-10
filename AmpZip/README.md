@@ -31,7 +31,7 @@ pip install 'ampzip[web]'     # plus the web service
 ```bash
 git clone https://github.com/AmpLens/AmpLens
 cd AmpLens/AmpZip
-pip install ./ampzip/engine          # the Rust engine, distributed as `amplens-engine`
+pip install ./ampzip/engine          # the Rust engine, distributed as `ampzip-engine`
 pip install -e '.[web,dev]'
 python tests/run_tests.py
 ```

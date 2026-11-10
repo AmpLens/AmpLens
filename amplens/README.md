@@ -1,6 +1,6 @@
 # amplens
 
-This package installs the components of [AmpLens](https://github.com/AmpLens/AmpLens). It currently includes AmpZip (`ampzip`) and its Rust engine (`amplens-engine`).
+This package installs the components of [AmpLens](https://github.com/AmpLens/AmpLens). It currently includes AmpZip (`ampzip`) and its Rust engine (`ampzip-engine`).
 
 ```bash
 pip install amplens

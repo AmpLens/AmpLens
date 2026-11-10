@@ -16,7 +16,7 @@ The engine stores expressions as polynomial numerators over monomial denominator
 
 ## Building and testing
 
-The engine is distributed as `amplens-engine` and imported as `ampzip_engine`. To build it from source, install a Rust toolchain and run the following command from the AmpZip directory.
+The engine is distributed as `ampzip-engine` and imported as `ampzip_engine`. To build it from source, install a Rust toolchain and run the following command from the AmpZip directory.
 
 ```bash
 python -m pip install ./ampzip/engine

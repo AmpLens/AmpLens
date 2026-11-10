@@ -16,7 +16,7 @@ if [[ -z "${WHEELS:-}" ]]; then
     maturin build --release -m ampzip/engine/Cargo.toml --out "$WHEELS"
     python -m build --wheel --outdir "$WHEELS" .
 fi
-ENGINE_WHEEL="$(ls "$WHEELS"/amplens_engine-1*.whl)"
+ENGINE_WHEEL="$(ls "$WHEELS"/ampzip_engine-1*.whl)"
 WHEEL="$(ls "$WHEELS"/ampzip-1*.whl)"
 echo "[fresh] wheels: $ENGINE_WHEEL $WHEEL"
 

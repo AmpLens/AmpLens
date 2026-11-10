@@ -6,7 +6,7 @@ AmpLens is a collection of tools for scattering amplitudes in spinor-helicity no
 
 | Component | Directory | PyPI | What it does |
 |---|---|---|---|
-| AmpZip | [`AmpZip/`](AmpZip) | `ampzip` (engine: `amplens-engine`) | Simplifies four-, five- and six-point spinor-helicity expressions by greedy best-first search. |
+| AmpZip | [`AmpZip/`](AmpZip) | `ampzip` (engine: `ampzip-engine`) | Simplifies four-, five- and six-point spinor-helicity expressions by greedy best-first search. |
 | AmpLens | [`amplens/`](amplens) | `amplens` | Installs the components, lists their versions, and provides access to the AmpZip command-line interface. |
 
 ## AmpZip in action

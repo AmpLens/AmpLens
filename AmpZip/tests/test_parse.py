@@ -102,6 +102,18 @@ def test_gate_tags_unchanged():
             assert not r.ok and any(i.tag == tag for i in r.issues), (s, tag, r.issues)
 
 
+def test_strings_and_lists_are_not_expressions():
+    from ampzip.atoms import ab, sb
+    names = {"ab": ab, "sb": sb, "I": sp.I}
+    for raw in ("'abs'", "'bin(1)'", "[1,2]", "'as'", "[ab(1,2)]"):
+        try:
+            parse_expr(raw, names, lenient=True, allow_str=True)
+        except ParseError as e:
+            assert e.kind == "eval", (raw, e.kind)
+        else:
+            raise AssertionError(f"accepted {raw}")
+
+
 def test_strict_policy_for_atomizer():
     assert "chain" not in atomize("chain('as',1,[2,3],4)*ab(1,2)/s(1,2)")
     for s in ("sqrt(2)*ab(1,2)", "x*ab(1,2)", "ab(1,2).real"):

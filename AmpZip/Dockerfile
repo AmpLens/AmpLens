@@ -19,7 +19,7 @@ RUN maturin build --release -m ampzip/engine/Cargo.toml --out /wheels \
 FROM python:3.12-slim AS runtime
 RUN useradd --create-home --uid 10001 ampzip
 COPY --from=build /wheels/*.whl /tmp/wheels/
-RUN pip install --no-cache-dir /tmp/wheels/amplens_engine-*.whl "$(ls /tmp/wheels/ampzip-1*.whl)[web]" \
+RUN pip install --no-cache-dir /tmp/wheels/ampzip_engine-*.whl "$(ls /tmp/wheels/ampzip-1*.whl)[web]" \
  && rm -rf /tmp/wheels
 USER ampzip
 WORKDIR /home/ampzip
