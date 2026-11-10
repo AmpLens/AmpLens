@@ -109,6 +109,25 @@ If you downloaded the backends to a different directory, set `AMPZIP_BACKENDS` t
 
 Inputs and commands for the paper's experiments are available in [Paper resources](https://github.com/AmpLens/AmpLens/tree/main/paper).
 
+## Paper and citation
+
+If you use AmpZip or any scientific part of its code in your research, please cite:
+
+Yifan Fei and Zhen Liu, **Fast, training-free simplification of spinor-helicity amplitudes**, [arXiv:2611.10115](https://arxiv.org/abs/2611.10115) [hep-th] (2026).
+
+```bibtex
+@article{Fei:2026gwf,
+    author = "Fei, Yifan and Liu, Zhen",
+    title = "{Fast, training-free simplification of spinor-helicity amplitudes}",
+    eprint = "2611.10115",
+    archivePrefix = "arXiv",
+    primaryClass = "hep-th",
+    reportNumber = "UMN-TH-4603/26",
+    month = "11",
+    year = "2026"
+}
+```
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

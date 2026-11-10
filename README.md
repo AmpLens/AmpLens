@@ -40,7 +40,6 @@ pip install 'amplens[web]'       # plus the AmpZip web service
 pip install ampzip              # AmpZip alone
 ```
 
-<!-- Confirm the platform list against the artifacts of the first release before publishing. -->
 Binary wheels are provided for CPython 3.12 and later on Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows (x86_64). Building from source requires a Rust toolchain. See the [AmpZip README](AmpZip/README.md) for instructions.
 
 ## Layout
@@ -53,9 +52,24 @@ AmpLens/
 └── .github/       release workflow (tags ampzip-v* and amplens-v*)
 ```
 
-## Citation
+## Paper and citation
 
-If you use AmpZip, please cite its [paper and software](AmpZip/CITATION.cff).
+If you use AmpZip or any scientific part of its code in your research, please cite:
+
+Yifan Fei and Zhen Liu, **Fast, training-free simplification of spinor-helicity amplitudes**, [arXiv:2611.10115](https://arxiv.org/abs/2611.10115) [hep-th] (2026).
+
+```bibtex
+@article{Fei:2026gwf,
+    author = "Fei, Yifan and Liu, Zhen",
+    title = "{Fast, training-free simplification of spinor-helicity amplitudes}",
+    eprint = "2611.10115",
+    archivePrefix = "arXiv",
+    primaryClass = "hep-th",
+    reportNumber = "UMN-TH-4603/26",
+    month = "11",
+    year = "2026"
+}
+```
 
 ## License
 

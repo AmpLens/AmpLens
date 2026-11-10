@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use AmpZip, please cite the accompanying paper and the software."
+message: "If you use AmpZip or any scientific part of its code in your research, please cite the accompanying paper and the software."
 title: "AmpZip"
 abstract: "Training-free simplification of massless spinor-helicity amplitudes by greedy best-first search."
 type: software
@@ -25,3 +25,4 @@ preferred-citation:
     - family-names: Liu
       given-names: Zhen
   year: 2026
+  url: "https://arxiv.org/abs/2611.10115"
